@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { readWellKnown } from "../lib/well-known";
-import { notScored, tally, type Scorable } from "../lib/analyzers/scored-checks";
-import { auditDeclaredLinks, coverageOf, parseLinks } from "../lib/llms-txt-links";
+import { notScored } from "../lib/analyzers/scored-checks";
+import { auditDeclaredLinks, parseLinks } from "../lib/llms-txt-links";
+import { scoreLlmsTxt } from "../lib/analyzers/llms-txt-analyzer";
 import { renderCoverage } from "../lib/render-scored-checks";
 import {
   buildGeneratedTemplate,
@@ -193,162 +194,21 @@ export default defineCachedTool(
     lines.push(`Status: FOUND (HTTP ${statusCode})`);
     lines.push("");
 
-    // ── Parse and validate ───────────────────────────────────────────────────
+    // ── Read it ──────────────────────────────────────────────────────────────
 
-    const fileLines = content.split(/\r?\n/);
-    const issues: string[] = [];
-    const found: string[] = [];
-    /**
-     * Sentences about what we could not measure, kept out of `issues`.
-     *
-     * `issues` drives the recommendations, so a `notScored(...)` string in it
-     * printed "Fix: Not scored: … This is not a finding about the page" and
-     * marked a correct file invalid because one link timed out. That is the
-     * unanswerable-read-as-answered inversion in reverse, and `scored-checks.ts`
-     * exists to keep the two apart.
-     */
-    const notes: string[] = [];
+    // One parse for both counts, and for the decision below. Deriving the
+    // relative count by subtracting a de-duplicated absolute count from a raw
+    // line count made a file that repeats a URL report a relative link it does
+    // not have.
+    const links = parseLinks(content);
 
-    /**
-     * The four questions, plus the one this file used to skip.
-     *
-     * `tally` rather than a hand-maintained `score += 20`, because the fifth
-     * check can come back unanswered — a probe that timed out is not a dead link
-     * — and a check that did not run has to leave the maximum as well as the
-     * score.
-     */
-    const checks: Scorable[] = [];
-
-    // 1. Title (# heading)
-    const titleLine = fileLines.find((l) => /^#\s+\S/.test(l));
-    checks.push({ points: 20, passed: Boolean(titleLine) });
-    if (titleLine) {
-      found.push(`Title: ${titleLine.replace(/^#\s+/, "").trim()}`);
-    } else {
-      issues.push("Missing title line (should start with '# Site Name')");
-    }
-
-    // 2. Description (> blockquote)
-    const descLine = fileLines.find((l) => /^>\s+\S/.test(l));
-    checks.push({ points: 20, passed: Boolean(descLine) });
-    if (descLine) {
-      found.push(`Description: ${descLine.replace(/^>\s+/, "").trim()}`);
-    } else {
-      issues.push("Missing description line (should start with '> Brief description')");
-    }
-
-    // 3. Content links.
-    // One parse for both counts. Deriving the relative count by subtracting a
-    // de-duplicated absolute count from a raw line count made a file that repeats
-    // a URL report a relative link it does not have.
-    const parsedLinks = parseLinks(content);
-    const absoluteUrls = parsedLinks.absolute;
-    const relativeLinks = parsedLinks.relative;
-
-    if (absoluteUrls.length >= 3) {
-      checks.push({ points: 20, passed: true });
-      found.push(`Content links: ${absoluteUrls.length} absolute URLs declared`);
-    } else if (absoluteUrls.length > 0) {
-      checks.push({ points: 20, earned: 8 });
-      issues.push(`Only ${absoluteUrls.length} absolute link(s) found — recommend at least 3`);
-    } else {
-      checks.push({ points: 20, passed: false });
-      issues.push("No content links found — add links to your key pages with absolute URLs");
-    }
-
-    if (relativeLinks > 0) {
-      issues.push(
-        `${relativeLinks} relative URL(s) found — use absolute URLs (https://...) for AI parsers`,
-      );
-    }
-
-    // 4. Do those links go anywhere?
-    //
-    // Counting links and reporting the count is an endorsement of a file whose
-    // links may all 404, and llms.txt is a navigation index: an agent that
-    // follows a dead link reads the dead end as the site's, not the URL's.
+    // The one check that needs the network, resolved here because the analyzer is
+    // pure — the same split as `EeatInput.trustPages` and `GeoInput.robotsRead`.
     const linkAudit =
-      absoluteUrls.length > 0 ? await auditDeclaredLinks(absoluteUrls, origin) : null;
-    let linkCoverage: string | null = null;
-    const allBlockedByRobots =
-      linkAudit !== null &&
-      linkAudit.unreachable.length > 0 &&
-      linkAudit.unreachable.every((probe) => probe.blockedByRobots === true);
+      links.absolute.length > 0 ? await auditDeclaredLinks(links.absolute, origin) : null;
 
-    if (!linkAudit || linkAudit.probed === 0) {
-      // Nothing declared to probe. Not a failure and not a pass: the check above
-      // already reported that there are no links, and charging twice for one
-      // absence is a double count.
-      checks.push({ points: 20, status: "not-applicable" });
-    } else {
-      const answered = linkAudit.probed - linkAudit.unreachable.length;
-      linkCoverage = coverageOf(linkAudit);
-
-      if (answered === 0) {
-        checks.push({ points: 20, status: "not-evaluated" });
-        notes.push(
-          notScored(
-            `none of the ${linkAudit.probed} link(s) sampled could be reached on this run`,
-            allBlockedByRobots
-              ? "allow those paths in robots.txt if you want them measured — we do not fetch what you disallow"
-              : "retry, or check that the URLs are reachable from outside your network",
-          ),
-        );
-      } else {
-        checks.push({ points: 20, earned: Math.round((20 * linkAudit.resolves) / answered) });
-        if (linkAudit.broken.length === 0) {
-          // The coverage sentence is printed once, beside the score. Repeating it
-          // here read as two different facts about the same probe.
-          found.push(
-            `Links resolve: ${linkAudit.resolves}/${answered} sampled links reach real content`,
-          );
-        } else {
-          issues.push(
-            `${linkAudit.broken.length} of ${answered} sampled link(s) do not reach real content: ` +
-              linkAudit.broken.map((probe) => `${probe.url} — ${probe.reason}`).join("; "),
-          );
-        }
-        if (linkAudit.unreachable.length > 0) {
-          notes.push(
-            notScored(
-              `${linkAudit.unreachable.length} sampled link(s) could not be reached on this run (${linkAudit.unreachable
-                .map((probe) => `${probe.url}: ${probe.reason}`)
-                .join("; ")})`,
-              allBlockedByRobots
-                ? "allow those paths in robots.txt if you want them measured"
-                : "retry to find out",
-            ),
-          );
-        }
-        // The shell comparison needs the homepage. Without it every 200 looks
-        // like real content, which is precisely the check this replaced — so the
-        // reader is told the strongest half of the check did not run.
-        if (!linkAudit.shellCheckRan && linkAudit.resolves > 0) {
-          notes.push(
-            notScored(
-              "the homepage could not be read, so a link answering 200 with the app shell would not have been caught on this run",
-              "retry to find out",
-            ),
-          );
-        }
-      }
-    }
-
-    // 5. Optional section
-    const hasOptional = /^##\s+Optional/im.test(content);
-    checks.push({ points: 20, passed: hasOptional });
-    if (hasOptional) {
-      found.push("Optional section: present (legal/privacy pages)");
-    } else {
-      issues.push("No '## Optional' section — consider adding privacy policy and terms links");
-    }
-
-    const totals = tally(checks);
-    const score = totals.score;
-    // The denominator moves when a check could not run, and it has to: scoring a
-    // file out of 100 when we only asked 80 points' worth of questions is the
-    // number that lies by omission.
-    const max = totals.max;
+    const { totals, score, max, percent, grade, found, issues, notes, linkCoverage } =
+      scoreLlmsTxt({ content, links, linkAudit });
 
     // ── Output ───────────────────────────────────────────────────────────────
 
@@ -383,19 +243,6 @@ export default defineCachedTool(
     // reader "a retry may change the score" blames our network for their file.
     lines.push(...renderCoverage(totals, { subject: "this file" }));
     if (linkCoverage) lines.push(`Links: ${linkCoverage}.`);
-
-    // Graded against what could actually be asked, not against a fixed 100. A
-    // file whose links we failed to reach is scored out of 80, and holding it to
-    // the 100-point bands would cost it a grade for our network trouble.
-    const percent = max === 0 ? 0 : (score / max) * 100;
-    const grade =
-      percent >= 90
-        ? "Excellent"
-        : percent >= 70
-          ? "Good"
-          : percent >= 40
-            ? "Needs Improvement"
-            : "Poor";
 
     lines.push(`Grade: ${grade}`);
     lines.push("");

@@ -1,15 +1,13 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
-import { refreshable } from "../lib/with-cache";
 import { toolText } from "../lib/tool-result";
 import { readReport, renderReport } from "../lib/google/ga4-report";
-import { DEFAULT_END, DEFAULT_START } from "./ga4-run-report";
+import { ga4Window, ga4WindowSchema } from "../lib/google/ga4-tool-shape";
 import type { GoogleReader } from "../lib/google/reader";
 
 export const schema = {
-  ...refreshable,
-  propertyId: z.string().describe("The GA4 property: `123456789` or `properties/123456789`."),
+  ...ga4WindowSchema,
   metrics: z.array(z.string()).describe("GA4 metric API names, e.g. ['sessions']"),
   rowDimension: z
     .string()
@@ -17,8 +15,6 @@ export const schema = {
   columnDimension: z
     .string()
     .describe("The dimension across the top, e.g. 'sessionDefaultChannelGroup'"),
-  startDate: z.string().optional().describe(`Default ${DEFAULT_START}.`),
-  endDate: z.string().optional().describe(`Default ${DEFAULT_END}.`),
   rowLimit: z.number().int().optional().describe("How many rows down the side. Default 25."),
   columnLimit: z.number().int().optional().describe("How many columns across. Default 10."),
 };
@@ -68,11 +64,13 @@ export async function handler(
   }: InferSchema<typeof schema>,
   google: GoogleReader,
 ) {
-  const range = { startDate: startDate ?? DEFAULT_START, endDate: endDate ?? DEFAULT_END };
+  const window = ga4Window({ propertyId, startDate, endDate }, {
+    title: "ANALYTICS PIVOT REPORT",
+  });
 
   const report = await google.analytics.runPivotReport({
-    property: propertyId,
-    dateRanges: [range],
+    property: window.property,
+    dateRanges: [window.dateRange],
     metrics,
     dimensions: [rowDimension, columnDimension],
     pivots: [
@@ -89,9 +87,7 @@ export async function handler(
 
   const table = readReport(report);
 
-  const lines: string[] = ["=== ANALYTICS PIVOT REPORT ==="];
-  lines.push(`Property: ${propertyId}`);
-  lines.push(`Window: ${range.startDate} to ${range.endDate}`);
+  const lines: string[] = [...window.header];
   lines.push(`Rows: ${rowDimension} — Columns: ${columnDimension}`);
   lines.push("");
   lines.push(...renderReport(table));

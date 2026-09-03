@@ -1,14 +1,11 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
-import { refreshable } from "../lib/with-cache";
+import { ga4Property, ga4PropertySchema } from "../lib/google/ga4-tool-shape";
 import { toolText } from "../lib/tool-result";
 import type { GoogleReader } from "../lib/google/reader";
 
-export const schema = {
-  ...refreshable,
-  propertyId: z.string().describe("The GA4 property: `123456789` or `properties/123456789`."),
-};
+export const schema = { ...ga4PropertySchema };
 
 export const metadata: ToolMetadata = {
   name: "ga4_custom_definitions",
@@ -30,13 +27,15 @@ export const metadata: ToolMetadata = {
 const FAILURE_CONTEXT = "list this Analytics property's custom definitions";
 
 export async function handler({ propertyId }: InferSchema<typeof schema>, google: GoogleReader) {
-  const found = await google.analytics.getMetadata(propertyId);
+  const { property, header } = ga4Property(propertyId, {
+    title: "ANALYTICS CUSTOM DEFINITIONS",
+  });
+  const found = await google.analytics.getMetadata(property);
 
   const dimensions = (found.dimensions ?? []).filter((field) => field.customDefinition);
   const metrics = (found.metrics ?? []).filter((field) => field.customDefinition);
 
-  const lines: string[] = ["=== ANALYTICS CUSTOM DEFINITIONS ==="];
-  lines.push(`Property: ${propertyId}`);
+  const lines: string[] = [...header];
 
   if (dimensions.length === 0 && metrics.length === 0) {
     // A real answer, and a common one. Said as a fact rather than as an absence,

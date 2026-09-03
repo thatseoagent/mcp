@@ -1,14 +1,13 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
-import { refreshable } from "../lib/with-cache";
+import { ga4Property, ga4PropertySchema } from "../lib/google/ga4-tool-shape";
 import { toolText } from "../lib/tool-result";
 import { readReport, renderReport } from "../lib/google/ga4-report";
 import type { GoogleReader } from "../lib/google/reader";
 
 export const schema = {
-  ...refreshable,
-  propertyId: z.string().describe("The GA4 property: `123456789` or `properties/123456789`."),
+  ...ga4PropertySchema,
   dimensions: z
     .array(z.string())
     .optional()
@@ -45,8 +44,13 @@ export async function handler(
   { propertyId, dimensions, metrics, limit }: InferSchema<typeof schema>,
   google: GoogleReader,
 ) {
+  const { property, header } = ga4Property(propertyId, {
+    title: "ANALYTICS REALTIME",
+    windowLine: "the last 30 minutes, which is all realtime covers.",
+  });
+
   const report = await google.analytics.runRealtimeReport({
-    property: propertyId,
+    property,
     dimensions: dimensions ?? ["unifiedScreenName"],
     metrics: metrics ?? ["activeUsers"],
     limit: limit ?? 20,
@@ -54,9 +58,7 @@ export async function handler(
 
   const table = readReport(report);
 
-  const lines: string[] = ["=== ANALYTICS REALTIME ==="];
-  lines.push(`Property: ${propertyId}`);
-  lines.push("Window: the last 30 minutes, which is all realtime covers.");
+  const lines: string[] = [...header];
   lines.push("");
   lines.push(...renderReport(table));
 

@@ -1,14 +1,17 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
-import { refreshable } from "../lib/with-cache";
 import { toolText } from "../lib/tool-result";
-import { DEFAULT_END, DEFAULT_START } from "./ga4-run-report";
+import {
+  DEFAULT_END,
+  DEFAULT_START,
+  ga4Property,
+  ga4PropertySchema,
+} from "../lib/google/ga4-tool-shape";
 import type { GoogleReader } from "../lib/google/reader";
 
 export const schema = {
-  ...refreshable,
-  propertyId: z.string().describe("The GA4 property: `123456789` or `properties/123456789`."),
+  ...ga4PropertySchema,
   metrics: z.array(z.string()).describe("The metric API names you want to report together."),
   dimensions: z
     .array(z.string())
@@ -46,8 +49,10 @@ export async function handler(
   { propertyId, metrics, dimensions }: InferSchema<typeof schema>,
   google: GoogleReader,
 ) {
+  const { property, header } = ga4Property(propertyId, { title: "ANALYTICS COMPATIBILITY" });
+
   const result = await google.analytics.checkCompatibility({
-    property: propertyId,
+    property,
     // The API wants a report-shaped request. The dates are irrelevant to the
     // answer — compatibility is a property of the field combination, not of the
     // window — so the ordinary defaults are used rather than asking the caller
@@ -69,8 +74,7 @@ export async function handler(
       .map((entry) => entry.metricMetadata?.apiName ?? "(unnamed metric)"),
   ];
 
-  const lines: string[] = ["=== ANALYTICS COMPATIBILITY ==="];
-  lines.push(`Property: ${propertyId}`);
+  const lines: string[] = [...header];
   lines.push(`Metrics asked about: ${metrics.join(", ")}`);
   if (dimensions && dimensions.length > 0) {
     lines.push(`Dimensions asked about: ${dimensions.join(", ")}`);

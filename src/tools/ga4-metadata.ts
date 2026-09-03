@@ -1,13 +1,12 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
-import { refreshable } from "../lib/with-cache";
+import { ga4Property, ga4PropertySchema } from "../lib/google/ga4-tool-shape";
 import { toolText } from "../lib/tool-result";
 import type { GoogleReader } from "../lib/google/reader";
 
 export const schema = {
-  ...refreshable,
-  propertyId: z.string().describe("The GA4 property: `123456789` or `properties/123456789`."),
+  ...ga4PropertySchema,
   search: z
     .string()
     .optional()
@@ -83,10 +82,10 @@ export async function handler(
   { propertyId, search }: InferSchema<typeof schema>,
   google: GoogleReader,
 ) {
-  const found = await google.analytics.getMetadata(propertyId);
+  const { property, header } = ga4Property(propertyId, { title: "ANALYTICS METADATA" });
+  const found = await google.analytics.getMetadata(property);
 
-  const lines: string[] = ["=== ANALYTICS METADATA ==="];
-  lines.push(`Property: ${propertyId}`);
+  const lines: string[] = [...header];
   if (search) lines.push(`Filtered by: "${search}"`);
 
   lines.push(...renderFields("DIMENSIONS", found.dimensions ?? [], search));

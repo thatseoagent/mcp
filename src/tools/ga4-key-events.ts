@@ -1,18 +1,12 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
-import { refreshable } from "../lib/with-cache";
 import { toolText } from "../lib/tool-result";
 import { readReport, renderReport } from "../lib/google/ga4-report";
-import { DEFAULT_END, DEFAULT_START } from "./ga4-run-report";
+import { ga4Window, ga4WindowSchema } from "../lib/google/ga4-tool-shape";
 import type { GoogleReader } from "../lib/google/reader";
 
-export const schema = {
-  ...refreshable,
-  propertyId: z.string().describe("The GA4 property: `123456789` or `properties/123456789`."),
-  startDate: z.string().optional().describe(`Default ${DEFAULT_START}.`),
-  endDate: z.string().optional().describe(`Default ${DEFAULT_END}.`),
-};
+export const schema = { ...ga4WindowSchema };
 
 export const metadata: ToolMetadata = {
   name: "ga4_key_events",
@@ -37,14 +31,16 @@ export async function handler(
   { propertyId, startDate, endDate }: InferSchema<typeof schema>,
   google: GoogleReader,
 ) {
-  const range = { startDate: startDate ?? DEFAULT_START, endDate: endDate ?? DEFAULT_END };
+  const window = ga4Window({ propertyId, startDate, endDate }, {
+    title: "ANALYTICS KEY EVENTS",
+  });
 
   // `keyEvents` by `eventName`, which is the only breakdown that answers "what
   // is converting". `conversions` was the pre-2024 name for the same metric and
   // is not asked for: a property that has one has the other.
   const byEvent = await google.analytics.runReport({
-    property: propertyId,
-    dateRanges: [range],
+    property: window.property,
+    dateRanges: [window.dateRange],
     dimensions: ["eventName"],
     metrics: ["keyEvents", "eventCount"],
     orderBys: [{ metric: { metricName: "keyEvents" }, desc: true }],
@@ -58,9 +54,7 @@ export async function handler(
   // that are all failing.
   const converting = table.rows.filter((row) => (row.metrics[0] ?? 0) > 0);
 
-  const lines: string[] = ["=== ANALYTICS KEY EVENTS ==="];
-  lines.push(`Property: ${propertyId}`);
-  lines.push(`Window: ${range.startDate} to ${range.endDate}`);
+  const lines: string[] = [...window.header];
 
   for (const caveat of table.caveats) {
     lines.push("");

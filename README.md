@@ -141,7 +141,13 @@ still listed and returns an error naming the command to run.
 - `gsc_sites_health_check` — every property at once, so you can tell which are
   worth opening before running anything per-site.
 
-And these read the Operator's own Analytics:
+And these read the Operator's own Analytics. Unlike the `gsc_*` Tools, they
+cannot take a bare domain on their own: Google's Analytics Admin API does not
+say which site a property measures — a property has a display name you chose,
+not a domain — so there is nothing to match `example.com` against, and guessing
+would report another site's traffic as yours. Run `ga4_list_properties` and pass
+the identifier, or record it once with `run_site_audit`'s `ga4PropertyId` and the
+domain will resolve on its own from then on.
 
 - `ga4_list_properties` — the Analytics properties this account can read,
   grouped by the account each belongs to.

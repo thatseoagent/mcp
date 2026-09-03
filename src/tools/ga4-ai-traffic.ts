@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
-import { refreshable } from "../lib/with-cache";
+import { DEFAULT_DAYS, ga4PropertySchema, ga4Window } from "../lib/google/ga4-tool-shape";
 import { toolText } from "../lib/tool-result";
 import { readReport } from "../lib/google/ga4-report";
 import {
@@ -12,8 +12,7 @@ import {
 import type { GoogleReader } from "../lib/google/reader";
 
 export const schema = {
-  ...refreshable,
-  propertyId: z.string().describe("The GA4 property: `123456789` or `properties/123456789`."),
+  ...ga4PropertySchema,
   days: z
     .number()
     .int()
@@ -74,17 +73,18 @@ export async function handler(
   { propertyId, days }: InferSchema<typeof schema>,
   google: GoogleReader,
 ) {
-  const window = days ?? 28;
+  const span = days ?? DEFAULT_DAYS;
+  const window = ga4Window({ propertyId, days: span }, {
+    title: `AI ASSISTANT TRAFFIC (last ${span} days)`,
+  });
+  const range = window.dateRange;
 
-  // GA4's relative dates, not dates computed here. Two bugs lived in the
-  // arithmetic these replace: it built dates from `new Date().toISOString()`,
-  // which is UTC, while GA4 resolves a range in the property's own reporting
-  // timezone — so for anyone west of Greenwich the window was off by a day. And
-  // it ran the current period from `days` ago to today while the comparison ran
-  // exactly `days`; both ends are inclusive, so the current window was a day
-  // longer and every delta came out inflated.
-  const range = { startDate: `${window}daysAgo`, endDate: "yesterday" };
-  const previous = { startDate: `${window * 2}daysAgo`, endDate: `${window + 1}daysAgo` };
+  // GA4's relative dates, not dates computed here — `ga4-tool-shape.ts` carries
+  // the timezone reasoning for the current window, and this is the comparison.
+  // The arithmetic is the trap: both ends are inclusive, so running the current
+  // period from `days` ago to *today* while the comparison ran exactly `days`
+  // made the current window a day longer and inflated every delta.
+  const previous = { startDate: `${span * 2}daysAgo`, endDate: `${span + 1}daysAgo` };
 
   // Three reports at three grains, because sessions add up across rows and users
   // do not. The same person reaching two landing pages from ChatGPT is one user
@@ -93,21 +93,21 @@ export async function handler(
   // each figure is read at the grain it is reported at.
   const [sourceReport, landingReport, previousReport] = await Promise.all([
     google.analytics.runReport({
-      property: propertyId,
+      property: window.property,
       dateRanges: [range],
       dimensions: ["sessionSource", "sessionMedium"],
       metrics: ["sessions", "totalUsers"],
       limit: ROW_LIMIT,
     }),
     google.analytics.runReport({
-      property: propertyId,
+      property: window.property,
       dateRanges: [range],
       dimensions: ["sessionSource", "sessionMedium", "landingPage"],
       metrics: ["sessions"],
       limit: ROW_LIMIT,
     }),
     google.analytics.runReport({
-      property: propertyId,
+      property: window.property,
       dateRanges: [previous],
       dimensions: ["sessionSource", "sessionMedium"],
       metrics: ["sessions"],
@@ -159,9 +159,7 @@ export async function handler(
     byPage.set(page, (byPage.get(page) ?? 0) + (row.metrics[0] ?? 0));
   }
 
-  const lines: string[] = [`=== AI ASSISTANT TRAFFIC (last ${window} days) ===`];
-  lines.push(`Property: ${propertyId}`);
-  lines.push(`Window: ${range.startDate} to ${range.endDate}`);
+  const lines: string[] = [...window.header];
 
   // Sampling, thresholding and truncation all apply to the figures below, so
   // they are stated before any of them rather than in a footnote.

@@ -40,11 +40,6 @@ const inspections = createSingleFlightCache<UrlInspection>({
   maxEntries: 2_000,
 });
 
-/** Drop everything. For tests, so one case cannot leak a verdict into the next. */
-export function resetInspectionCache(): void {
-  inspections.clear();
-}
-
 /**
  * Inspect a URL, or reuse a verdict from this window.
  *

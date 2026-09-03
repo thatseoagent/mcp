@@ -1,13 +1,13 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import seoSecurityHeaders from "@/tools/seo-security-headers";
-import { resetHttpCaches } from "@/lib/http-client";
 import { serve } from "../helpers/serve";
+import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  resetHttpCaches();
+  resetAllSingleFlightCaches();
   vi.restoreAllMocks();
 });
 

@@ -1,22 +1,19 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import aiVisibilityScore from "@/tools/ai-visibility-score";
-import { resetPageCache } from "@/lib/page-reachability";
-import { resetHttpCaches } from "@/lib/http-client";
 import { serve, type Route } from "../helpers/serve";
+import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 const originalFetch = globalThis.fetch;
 
 beforeEach(() => {
-  resetPageCache();
-  resetHttpCaches();
+  resetAllSingleFlightCaches();
   // Unset so no case reaches the real Knowledge Graph API.
   delete process.env.GOOGLE_KG_API_KEY;
 });
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  resetPageCache();
-  resetHttpCaches();
+  resetAllSingleFlightCaches();
   vi.restoreAllMocks();
 });
 

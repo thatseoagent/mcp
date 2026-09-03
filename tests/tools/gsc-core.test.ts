@@ -6,10 +6,10 @@ import { handler as listSitemaps } from "@/tools/gsc-list-sitemaps";
 import { handler as getSitemap } from "@/tools/gsc-get-sitemap";
 import { handler as healthCheck } from "@/tools/gsc-sites-health-check";
 import { fakeGoogleReader } from "@/lib/google/fake-reader";
-import { resetInspectionCache } from "@/lib/google/inspection-cache";
 import { LAG_DAYS, daysAgo } from "@/lib/google/gsc-dates";
 import { UpstreamApiError } from "@/lib/upstream-api-error";
 import { resetPersistence } from "@/lib/db/runtime";
+import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 /**
  * The core Search Console Tools, against the test reader.
@@ -19,7 +19,7 @@ import { resetPersistence } from "@/lib/db/runtime";
  */
 
 beforeEach(() => {
-  resetInspectionCache();
+  resetAllSingleFlightCaches();
 });
 
 afterEach(() => {

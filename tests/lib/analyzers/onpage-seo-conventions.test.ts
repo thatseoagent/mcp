@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { analyzeOnPageSeo } from "@/lib/analyzers/onpage-seo";
 import { analyzeContent } from "@/lib/analyzers/content-analyzer";
-import { resetHttpCaches } from "@/lib/http-client";
+import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 /**
  * #348. `onpage-seo` was the odd one out on three independent axes, and three
@@ -37,8 +37,8 @@ function serve(html: string) {
   }) as unknown as typeof fetch;
 }
 
-beforeEach(() => { originalFetch = globalThis.fetch; resetHttpCaches(); });
-afterEach(() => { globalThis.fetch = originalFetch; resetHttpCaches(); });
+beforeEach(() => { originalFetch = globalThis.fetch; resetAllSingleFlightCaches(); });
+afterEach(() => { globalThis.fetch = originalFetch; resetAllSingleFlightCaches(); });
 
 describe("it shares one request with the analyzers running beside it", () => {
   it("does not fetch the page a second time when another analyzer already has it", async () => {

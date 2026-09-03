@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import seoAnalyzePage from "@/tools/seo-analyze-page";
-import { resetHttpCaches } from "@/lib/http-client";
 import { serve } from "../helpers/serve";
+import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 /**
  * What the agent is told, which is the only thing it can act on.
@@ -17,11 +17,11 @@ const originalFetch = globalThis.fetch;
 // window — the point of it, since five Tools read the same page. Every case here
 // serves different HTML at the same URL, so without a reset each would be handed
 // the previous case's document.
-beforeEach(resetHttpCaches);
+beforeEach(resetAllSingleFlightCaches);
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  resetHttpCaches();
+  resetAllSingleFlightCaches();
   vi.restoreAllMocks();
 });
 

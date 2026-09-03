@@ -16,9 +16,9 @@ import { handler as richResults } from "@/tools/gsc-rich-results";
 import { handler as featuredSnippets } from "@/tools/gsc-detect-featured-snippets";
 import { handler as serpGap } from "@/tools/gsc-serp-features-gap";
 import { fakeGoogleReader } from "@/lib/google/fake-reader";
-import { resetInspectionCache } from "@/lib/google/inspection-cache";
 import { resetPersistence } from "@/lib/db/runtime";
 import type { SearchAnalyticsRow, SearchAnalyticsQuery } from "@/lib/google/reader";
+import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 /**
  * The fifteen analysis Tools, against the test reader.
@@ -29,7 +29,7 @@ import type { SearchAnalyticsRow, SearchAnalyticsQuery } from "@/lib/google/read
  */
 
 beforeEach(() => {
-  resetInspectionCache();
+  resetAllSingleFlightCaches();
 });
 
 afterEach(() => {

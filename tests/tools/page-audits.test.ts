@@ -8,6 +8,7 @@ import { DB_PATH_VARIABLE } from "@/lib/db/database";
 import { InvalidInputError } from "@/lib/invalid-input-error";
 import { useTempDatabase } from "../helpers/temp-database";
 import { serve } from "../helpers/serve";
+import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 const originalFetch = globalThis.fetch;
 let temp: ReturnType<typeof useTempDatabase> | null = null;
@@ -94,8 +95,8 @@ describe("run_page_audit", () => {
     // the HTTP layer holds a page's markup for sixty seconds, so two audits in
     // quick succession genuinely read the same bytes. Dropping it here is the
     // test standing in for time.
-    const { resetHttpCaches } = await import("@/lib/http-client");
-    resetHttpCaches();
+    const { resetAllSingleFlightCaches } = await import("@/lib/single-flight");
+    resetAllSingleFlightCaches();
 
     const text = textOf(await audit());
 

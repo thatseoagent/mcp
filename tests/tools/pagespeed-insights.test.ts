@@ -1,12 +1,12 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import pagespeedInsights from "@/tools/pagespeed-insights";
-import { resetPagespeedCache } from "@/lib/pagespeed";
+import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  resetPagespeedCache();
+  resetAllSingleFlightCaches();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });

@@ -115,7 +115,3 @@ export async function assertRobotsAllowed(
   }
 }
 
-/** For tests, so one case cannot leak a cached ruleset into the next. */
-export function resetRobotsCache(): void {
-  robotsCache.clear();
-}

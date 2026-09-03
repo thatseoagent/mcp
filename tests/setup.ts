@@ -25,19 +25,23 @@ vi.mock("node:dns/promises", () => ({
 // registered, so `tests/lib/ssrf-guard.test.ts` would silently get this file's
 // DNS stub instead of its own and stop testing what it claims to.
 //
-// The HTTP caches belong on the same list. They hold a page's markup for sixty
-// seconds, so a test that serves different HTML at the same URL as the previous
-// one is answered with the previous one's body — and the assertion that fails is
-// about rendering, three layers away from the cause.
+// Every single-flight cache belongs on the same list. They hold a page's markup
+// for sixty seconds, so a test that serves different HTML at the same URL as the
+// previous one is answered with the previous one's body — and the assertion that
+// fails is about rendering, three layers away from the cause.
+//
+// `resetAllSingleFlightCaches()` covers all six, because each registers itself
+// at creation. This used to name three of them and the other three were cleared
+// by hand in whichever files happened to notice, so a cache added later inherited
+// the leak and produced its failure somewhere else.
 beforeEach(async () => {
-  const [{ resetCrawlPacing }, { resetRobotsCache }, { resetHttpCaches }] = await Promise.all([
+  const [{ resetCrawlPacing }, { resetAllSingleFlightCaches }] = await Promise.all([
     import("@/lib/crawl-pacing"),
-    import("@/lib/robots-gate"),
-    import("@/lib/http-client"),
+    import("@/lib/single-flight"),
   ]);
+  // Not a single-flight cache: the pacing ledger is a budget, not an answer.
   resetCrawlPacing();
-  resetRobotsCache();
-  resetHttpCaches();
+  resetAllSingleFlightCaches();
 });
 
 // The unit suite runs with no database, and that is a correctness requirement

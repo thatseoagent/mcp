@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import seoEeatScore from "@/tools/seo-eeat-score";
-import { resetHttpCaches } from "@/lib/http-client";
 import { serve } from "../helpers/serve";
+import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 /**
  * Three trustworthiness indicators ask whether the SITE publishes a privacy
@@ -18,11 +18,11 @@ import { serve } from "../helpers/serve";
 
 const originalFetch = globalThis.fetch;
 
-beforeEach(resetHttpCaches);
+beforeEach(resetAllSingleFlightCaches);
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  resetHttpCaches();
+  resetAllSingleFlightCaches();
   vi.restoreAllMocks();
 });
 

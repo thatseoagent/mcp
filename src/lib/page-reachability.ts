@@ -14,11 +14,6 @@ import { createSingleFlightCache } from "./single-flight";
  */
 const pageCache = createSingleFlightCache<PageReachability>();
 
-/** Drop the cache. For tests, so one case cannot leak into the next. */
-export function resetPageCache(): void {
-  pageCache.clear();
-}
-
 /**
  * The first thing an audit must establish: can this URL be read at all.
  *

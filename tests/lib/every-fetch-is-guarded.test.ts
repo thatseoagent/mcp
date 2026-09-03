@@ -4,12 +4,12 @@ import {
   fetchHeaders,
   fetchWithTimeout,
   fetchWithoutRedirect,
-  resetHttpCaches,
 } from "@/lib/http-client";
-import { RobotsDisallowedError, resetRobotsCache } from "@/lib/robots-gate";
-import { fetchAuditablePage, resetPageCache } from "@/lib/page-reachability";
+import { RobotsDisallowedError } from "@/lib/robots-gate";
+import { fetchAuditablePage } from "@/lib/page-reachability";
 import { readWellKnown } from "@/lib/well-known";
 import { resetCrawlPacing } from "@/lib/crawl-pacing";
+import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 /**
  * The invariant this file exists to keep: **the two obligations ride on every
@@ -59,18 +59,14 @@ const ALLOW_ALL = () => new Response("User-agent: *\nAllow: /", { status: 200 })
 const DISALLOW_ALL = () => new Response("User-agent: *\nDisallow: /", { status: 200 });
 
 beforeEach(() => {
-  resetHttpCaches();
-  resetPageCache();
-  resetRobotsCache();
+  resetAllSingleFlightCaches();
   resetCrawlPacing();
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  resetHttpCaches();
-  resetPageCache();
-  resetRobotsCache();
+  resetAllSingleFlightCaches();
   resetCrawlPacing();
 });
 

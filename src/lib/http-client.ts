@@ -49,12 +49,6 @@ const htmlCache = createSingleFlightCache<string>();
 /** The same, for the header-only reads {@link fetchHeaders} makes. */
 const headersCache = createSingleFlightCache<{ headers: Headers; finalUrl: string }>();
 
-/** Drop the caches. For tests, so one case cannot leak into the next. */
-export function resetHttpCaches(): void {
-  htmlCache.clear();
-  headersCache.clear();
-}
-
 /**
  * The HTML at a URL, fetched at most once per window.
  *

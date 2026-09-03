@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveTrustPages, showsTrustPage } from "@/lib/site-trust-pages";
 import { readPage } from "@/lib/analyzers/parsed-page";
-import { resetHttpCaches } from "@/lib/http-client";
 import { serveHtml, restoreFetch } from "../helpers/serve-html";
+import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 /**
  * #340: four E-E-A-T indicators asked a question about the site and answered it from
@@ -27,7 +27,7 @@ const shows = (html: string, kind: "privacy" | "about" | "contact", schemas: unk
 
 afterEach(() => {
   restoreFetch();
-  resetHttpCaches();
+  resetAllSingleFlightCaches();
 });
 
 describe("showsTrustPage reads one document by one rule", () => {

@@ -1,15 +1,15 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import seoSchemaDetection from "@/tools/seo-schema-detection";
-import { resetHttpCaches } from "@/lib/http-client";
 import { serve } from "../helpers/serve";
+import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 const originalFetch = globalThis.fetch;
 
-beforeEach(resetHttpCaches);
+beforeEach(resetAllSingleFlightCaches);
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  resetHttpCaches();
+  resetAllSingleFlightCaches();
   vi.restoreAllMocks();
 });
 

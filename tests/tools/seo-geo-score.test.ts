@@ -1,24 +1,21 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import seoGeoScore from "@/tools/seo-geo-score";
-import { resetPageCache } from "@/lib/page-reachability";
-import { resetHttpCaches } from "@/lib/http-client";
 import { serve, type Route } from "../helpers/serve";
+import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 const originalFetch = globalThis.fetch;
 
 beforeEach(() => {
   // Both fetchers share one request per URL per window, which real callers want
   // and a test never does: a case would be served the previous case's page.
-  resetPageCache();
-  resetHttpCaches();
+  resetAllSingleFlightCaches();
   // Unset so no case reaches the real Knowledge Graph API.
   delete process.env.GOOGLE_KG_API_KEY;
 });
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  resetPageCache();
-  resetHttpCaches();
+  resetAllSingleFlightCaches();
   vi.restoreAllMocks();
 });
 

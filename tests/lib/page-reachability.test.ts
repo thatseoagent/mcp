@@ -9,12 +9,13 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-import { fetchAuditablePage, resetPageCache } from "@/lib/page-reachability";
+import { fetchAuditablePage } from "@/lib/page-reachability";
+import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 const realFetch = globalThis.fetch;
 // Each case mocks its own response for the same URL, so the shared-request cache
 // has to be dropped between them or the second case reads the first case's page.
-beforeEach(() => { resetPageCache(); });
+beforeEach(() => { resetAllSingleFlightCaches(); });
 afterEach(() => { globalThis.fetch = realFetch; vi.restoreAllMocks(); });
 
 const serve = (status: number, body = "<html><body>ok</body></html>", headers: Record<string, string> = {}) => {

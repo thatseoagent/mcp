@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
 import { createSingleFlightCache } from "@/lib/single-flight";
 import { runInFreshFetchScope } from "@/lib/fetch-scope";
 
@@ -202,5 +204,71 @@ describe("a fresh scope sees nothing and leaves nothing", () => {
     // Two loads: the shared one, and the fresh one. The third call reused the
     // shared entry, which the fresh run never touched.
     expect(load).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * The invariant this addition exists to keep: **every cache is reachable from
+ * one reset.**
+ *
+ * Six caches lived in six modules and each exported its own `reset*`, every one
+ * a pass-through to `cache.clear()`. `tests/setup.ts` cleared three of the six;
+ * the other three were cleared by hand in whichever files happened to notice.
+ * `tests/setup.ts` states the hazard exactly — a stale cache makes "the
+ * assertion that fails about rendering, three layers away from the cause" — and
+ * a cache added later inherited the leak and produced its failure elsewhere.
+ *
+ * The sweep is the part that makes this stick: registering at creation is only
+ * true by construction as long as nothing creates a `Map` of its own.
+ */
+describe("every single-flight cache is reachable from one reset", () => {
+  it("clears a cache the caller never named", async () => {
+    const cache = createSingleFlightCache<string>();
+    await cache.run("k", async () => "v");
+    expect(cache.size).toBe(1);
+
+    const { resetAllSingleFlightCaches } = await import("@/lib/single-flight");
+    resetAllSingleFlightCaches();
+
+    expect(cache.size).toBe(0);
+  });
+
+  it("clears every cache, not the most recent one", async () => {
+    const first = createSingleFlightCache<string>();
+    const second = createSingleFlightCache<string>();
+    await Promise.all([first.run("a", async () => "1"), second.run("b", async () => "2")]);
+
+    const { resetAllSingleFlightCaches } = await import("@/lib/single-flight");
+    resetAllSingleFlightCaches();
+
+    expect([first.size, second.size]).toEqual([0, 0]);
+  });
+
+  it("is the only cache in src/, so the registry really covers them all", () => {
+    // A module holding its own `Map` of in-flight promises would be invisible to
+    // the reset, which is the state this file exists to make impossible. Matched
+    // on the shape, so the next one is caught the day it is written.
+    const root = process.cwd();
+    const OWNER = path.join("src", "lib", "single-flight.ts");
+
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir)) {
+        const full = path.join(dir, entry);
+        if (statSync(full).isDirectory()) {
+          walk(full);
+        } else if (entry.endsWith(".ts")) {
+          const file = path.relative(root, full);
+          if (file === OWNER) continue;
+          const source = readFileSync(full, "utf8");
+          if (/new Map<string,\s*(?:Inflight|\{\s*value:\s*Promise)/.test(source)) {
+            offenders.push(file);
+          }
+        }
+      }
+    };
+    walk(path.join(root, "src"));
+
+    expect(offenders).toEqual([]);
   });
 });

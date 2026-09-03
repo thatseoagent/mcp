@@ -143,11 +143,6 @@ export interface LabData {
  */
 const insightsCache = createSingleFlightCache<PageSpeedInsightsResult>();
 
-/** Drop the cache. For tests, so one case cannot leak into the next. */
-export function resetPagespeedCache(): void {
-  insightsCache.clear();
-}
-
 /**
  * Run PageSpeed Insights for one URL.
  *

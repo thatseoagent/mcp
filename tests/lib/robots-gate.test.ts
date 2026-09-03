@@ -4,14 +4,14 @@ import {
   RobotsDisallowedError,
   assertRobotsAllowed,
   isAllowedByRobots,
-  resetRobotsCache,
 } from "@/lib/robots-gate";
 import { serve } from "../helpers/serve";
+import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 const originalFetch = globalThis.fetch;
 
 beforeEach(() => {
-  resetRobotsCache();
+  resetAllSingleFlightCaches();
 });
 
 afterEach(() => {

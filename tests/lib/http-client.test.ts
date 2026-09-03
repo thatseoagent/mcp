@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { validateUrl, fetchWithTimeout, fetchHtml, resetHttpCaches } from "@/lib/http-client";
+import { validateUrl, fetchWithTimeout, fetchHtml } from "@/lib/http-client";
 import { PAGE_AUDIT_USER_AGENT } from "@/lib/bot-identity";
 import { expectPacedStarts } from "../helpers/pacing";
-import { fetchAuditablePage, resetPageCache } from "@/lib/page-reachability";
+import { fetchAuditablePage } from "@/lib/page-reachability";
+import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 // ── validateUrl ────────────────────────────────────────────────────────────
 
@@ -111,7 +112,7 @@ describe("clearToFetch binds every fetch, not only the crawler", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-    resetHttpCaches();
+    resetAllSingleFlightCaches();
   });
 
   it("refuses a URL the site's robots.txt disallows for us", async () => {
@@ -166,15 +167,13 @@ function timesFetched(fetchMock: { mock: { calls: unknown[][] } }, url: string):
 
 describe("one turn fetches each document once", () => {
   beforeEach(() => {
-    resetHttpCaches();
-    resetPageCache();
+    resetAllSingleFlightCaches();
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-    resetHttpCaches();
-    resetPageCache();
+    resetAllSingleFlightCaches();
   });
 
   /**

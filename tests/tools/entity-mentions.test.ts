@@ -1,17 +1,17 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import entityMentions from "@/tools/entity-mentions";
-import { resetHttpCaches } from "@/lib/http-client";
 import { serve, type Route } from "../helpers/serve";
+import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 const originalFetch = globalThis.fetch;
 
 // The homepage is read through `fetchHtml`, which shares one request per URL per
 // window — every case here serves different markup at the same URL.
-beforeEach(resetHttpCaches);
+beforeEach(resetAllSingleFlightCaches);
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  resetHttpCaches();
+  resetAllSingleFlightCaches();
   vi.restoreAllMocks();
 });
 

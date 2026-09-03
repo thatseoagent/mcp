@@ -9,7 +9,19 @@
  * Honest schema describes the page accurately. Mismatched schema wastes crawl
  * budget, was the trigger for the FAQ rich-result deprecation cycle, and per
  * the Ahrefs 2026 causal study contributes nothing to AI citation lift.
+ *
+ * ── Why a `ReadableDocument` and not just the markup ──
+ *
+ * "A question-phrased heading" is a **Content Signal**, and `CONTEXT.md` says
+ * those are detected in one place. This file had its own regex for it, matching
+ * `<h1-6>` whose text was `[^<]*` up to a `?` — so `<h2>What is
+ * <strong>SEO</strong>?</h2>` did not count, and a page with a perfectly
+ * honest, visible FAQ was told to remove its FAQPage schema. The shared
+ * detector reads heading *text*, so nested markup is not a defect any more, and
+ * the accented Spanish question words it knows about arrive with it.
  */
+import { countQuestionHeadings } from "./content-signals";
+import type { ReadableDocument } from "../visible-text";
 
 export type MismatchSeverity = "warning" | "info";
 
@@ -35,13 +47,17 @@ function findSchema(schemas: readonly unknown[], target: string): SchemaShape | 
   return schemas.find((s) => hasType(s, target)) as SchemaShape | undefined;
 }
 
-function detectFaqPageMismatch(html: string, schemas: readonly unknown[]): SchemaMismatch | null {
+function detectFaqPageMismatch(
+  html: string,
+  schemas: readonly unknown[],
+  readable: ReadableDocument,
+): SchemaMismatch | null {
   if (!schemas.some((s) => hasType(s, "FAQPage"))) return null;
 
   const hasDisclosure = /<details[^>]*>[\s\S]*?<summary[^>]*>/i.test(html);
   const hasDefList = /<dl[^>]*>[\s\S]*?<dt[^>]*>[\s\S]*?<dd[^>]*>/i.test(html);
   const hasFaqContainer = /(?:class|id)=["'][^"']*faq[^"']*["']/i.test(html);
-  const hasQuestionHeading = /<h[1-6][^>]*>\s*(?:[¿?]|what |how |why |when |where |who |which |is |are |does |do |can |should |will )[^<]*\?\s*<\/h[1-6]>/i.test(html);
+  const hasQuestionHeading = countQuestionHeadings(readable) > 0;
 
   const visibleQa = hasDisclosure || hasDefList || hasFaqContainer || hasQuestionHeading;
   if (visibleQa) return null;
@@ -127,9 +143,13 @@ function detectProductMismatch(html: string, schemas: readonly unknown[]): Schem
   return null;
 }
 
-export function detectSchemaMismatches(html: string, schemas: readonly unknown[]): SchemaMismatch[] {
+export function detectSchemaMismatches(
+  html: string,
+  schemas: readonly unknown[],
+  readable: ReadableDocument,
+): SchemaMismatch[] {
   const mismatches: SchemaMismatch[] = [];
-  const faq = detectFaqPageMismatch(html, schemas);
+  const faq = detectFaqPageMismatch(html, schemas, readable);
   if (faq) mismatches.push(faq);
   const howTo = detectHowToMismatch(html, schemas);
   if (howTo) mismatches.push(howTo);

@@ -67,6 +67,9 @@ export async function detectSchemas(
 
     const html = await fetchHtml(url);
     const $ = load(html);
+    // One reading of the document, used by the mismatch detector and by
+    // `identifyPage` below. It was built twice for two readers of the same page.
+    const readable = readableDocument($);
 
     // Detect each format
     const jsonLd = detectJsonLd($);
@@ -96,7 +99,7 @@ export async function detectSchemas(
 
     // Detect schema-content mismatches (FAQPage without visible Q&A, etc.)
     const { detectSchemaMismatches } = await import("./schema-mismatch-analyzer");
-    const mismatches = detectSchemaMismatches(html, jsonLd.map((s) => s.raw));
+    const mismatches = detectSchemaMismatches(html, jsonLd.map((s) => s.raw), readable);
 
     // What kind of page this is decides which schema types it actually owes.
     // A fixed list demanded Article and BreadcrumbList of every URL, which on a
@@ -104,7 +107,7 @@ export async function detectSchemas(
     // it has none of.
     // `$` is already in scope; this used to hand `identifyPage` the raw string and
   // pay for a second parse of the document it had just parsed.
-  const identity = identifyPage(url, $, readableDocument($), schemaTypes);
+  const identity = identifyPage(url, $, readable, schemaTypes);
 
     return success({
       url,

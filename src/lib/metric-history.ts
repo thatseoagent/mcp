@@ -89,6 +89,8 @@ export function recordReadings(
   readings: readonly Reading[],
   capturedAt = now(),
 ): number {
+  // Rule 2 in `db/runtime.ts`: past the Tool's refusal, a read answers with its
+  // own empty.
   const db = database();
   if (!db) return 0;
 
@@ -118,6 +120,8 @@ export function recordReadings(
 
 /** Every reading of one metric for one Site, newest first. */
 export function readSeries(siteId: string, metric: string, since?: Date): SiteMetricReading[] {
+  // Rule 2 in `db/runtime.ts`: past the Tool's refusal, a read answers with its
+  // own empty.
   const db = database();
   if (!db) return [];
 
@@ -137,6 +141,8 @@ export function readSeries(siteId: string, metric: string, since?: Date): SiteMe
 
 /** Which metrics this Site has any history for. */
 export function metricsWithHistory(siteId: string): string[] {
+  // Rule 2 in `db/runtime.ts`: past the Tool's refusal, a read answers with its
+  // own empty.
   const db = database();
   if (!db) return [];
 
@@ -216,6 +222,8 @@ export interface MonthlySummary {
  * it after a late audit corrects the month rather than duplicating it.
  */
 export function rollUpMonths(siteId: string): number {
+  // Rule 2 in `db/runtime.ts`: past the Tool's refusal, a read answers with its
+  // own empty.
   const db = database();
   if (!db) return 0;
 
@@ -271,6 +279,8 @@ export function rollUpMonths(siteId: string): number {
 
 /** The stored monthly rollups for a Site, oldest first. */
 export function readMonths(siteId: string): MonthlySummary[] {
+  // Rule 2 in `db/runtime.ts`: past the Tool's refusal, a read answers with its
+  // own empty.
   const db = database();
   if (!db) return [];
 

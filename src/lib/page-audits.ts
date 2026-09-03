@@ -48,6 +48,8 @@ export function normaliseAuditUrl(input: string): string {
 
 /** Every audit stored for a Site, most recently updated first. */
 export function listPageAudits(siteId: string, limit = 50): PageAudit[] {
+  // Rule 2 in `db/runtime.ts`: past the Tool's refusal, a read answers with its
+  // own empty.
   const db = database();
   if (!db) return [];
 
@@ -62,6 +64,8 @@ export function listPageAudits(siteId: string, limit = 50): PageAudit[] {
 
 /** The stored audit for one URL, or `null`. */
 export function findPageAudit(siteId: string, url: string): PageAudit | null {
+  // Rule 2 in `db/runtime.ts`: past the Tool's refusal, a read answers with its
+  // own empty.
   const db = database();
   if (!db) return null;
 
@@ -86,6 +90,11 @@ export function savePageAudit(
   url: string,
   report: string,
 ): { previous: PageAudit | null } {
+  // A write, so rule 3 in `db/runtime.ts` — the silent half. Nothing was saved
+  // and there was no previous audit to compare against either, so `previous:
+  // null` is the whole truth rather than a stand-in for one. Unlike
+  // `site-refresh`'s closers, this is never reached holding an id that proves a
+  // database existed a moment ago.
   const db = database();
   if (!db) return { previous: null };
 

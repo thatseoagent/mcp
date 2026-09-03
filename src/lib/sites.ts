@@ -85,6 +85,8 @@ export class NoDatabaseError extends Error {
 
 /** Every Site, oldest first, which is the order they were registered in. */
 export function listSites(): Site[] {
+  // Rule 2 in `db/runtime.ts`: past the Tool's refusal, a read answers with its
+  // own empty.
   const db = database();
   if (!db) return [];
   return db.select().from(sites).all();
@@ -92,6 +94,8 @@ export function listSites(): Site[] {
 
 /** The Site for a domain, or `null`. The domain is normalised first. */
 export function findSite(domain: string): Site | null {
+  // Rule 2 in `db/runtime.ts`: past the Tool's refusal, a read answers with its
+  // own empty.
   const db = database();
   if (!db) return null;
   const normalised = normaliseDomain(domain);
@@ -109,6 +113,10 @@ export function findSite(domain: string): Site | null {
  */
 export function registerSite(domain: string): Site {
   const db = database();
+  // Rule 2's exception, in `db/runtime.ts`: "the Site you asked me to create"
+  // has no empty answer, so this is the one repository function that throws.
+  // The Tool that calls it has already refused with the *reason*; this is the
+  // guard behind that, and its message is deliberately generic.
   if (!db) throw new NoDatabaseError("persistence is unavailable");
 
   const normalised = normaliseDomain(domain);
@@ -143,6 +151,10 @@ export function rememberGoogleProperty(
   property: { gscSiteUrl?: string | null; ga4PropertyId?: string | null },
 ): void {
   const db = database();
+  // Rule 3 in `db/runtime.ts`, the silent half: there is no Site row to attach a
+  // property to either, so nothing was lost and nothing is owed. Unlike
+  // `site-refresh`'s closers, this is never reached holding an id that proves a
+  // database existed a moment ago.
   if (!db) return;
 
   db.update(sites)

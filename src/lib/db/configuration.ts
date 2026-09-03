@@ -47,6 +47,8 @@ export type ConfigKey = (typeof CONFIG_KEYS)[keyof typeof CONFIG_KEYS];
  * caller for a distinction almost none of them draw.
  */
 export function readConfiguration(key: ConfigKey): string | null {
+  // Rule 2 in `db/runtime.ts`: past the Tool's refusal, a read answers with its
+  // own empty.
   const db = database();
   if (!db) return null;
 
@@ -68,7 +70,11 @@ export function readConfiguration(key: ConfigKey): string | null {
  *          Operator who authorized in their browser with nothing to show for it.
  */
 export function writeConfiguration(key: ConfigKey, value: string): boolean {
+  // Rule 2 in `db/runtime.ts`: past the Tool's refusal, a read answers with its
+  // own empty.
   const db = database();
+  // Returns `false` rather than staying silent, so a caller that needs to know
+  // whether the value was kept can tell. Rule 3 in `runtime.ts`.
   if (!db) return false;
 
   db.insert(configuration)

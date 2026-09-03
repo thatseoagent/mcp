@@ -44,6 +44,32 @@ function resolve(): Persistence {
  * call it — they are the ones ADR-0003 requires to refuse when it is missing.
  * Everything that merely *benefits* from persistence goes through
  * {@link toolCache} and never sees the null.
+ *
+ * ── What a repository does with the null ──
+ *
+ * Nineteen `if (!db)` guards across the five repositories returned five different
+ * things — `[]`, `null`, `0`, a throw, and a silent no-op — chosen per function
+ * with no rule written down. The rule is:
+ *
+ * 1. **The refusal belongs to the Tool, not the repository.** Every Tool that
+ *    needs persistence calls {@link persistenceStatus} first and throws
+ *    `NoDatabaseError` with the reason, which is the only message that can name
+ *    what to configure. `get_page_audits`, `run_page_audit`, `run_site_audit`,
+ *    `seo_metric_trend` and `sync_gsc_properties` all do. So a repository guard
+ *    is defence in depth and is not the sentence an Operator reads.
+ * 2. **A read answers with its own empty**, because a caller past the Tool's
+ *    refusal is asking a question the schema can answer emptily: no Sites, no
+ *    audits, no history. `registerSite` is the exception and throws, because
+ *    "the Site you asked me to create" has no empty.
+ * 3. **A write that cannot happen says so to stderr and returns.** Silence is
+ *    right when there was nothing to write — `startRefresh` returned `null`, so
+ *    no row was opened — and wrong when a database that existed has gone, which
+ *    is how `site-refresh` could leave the `pending` row its own header exists to
+ *    prevent. `logError` is the honest middle: the Operator cannot act on it
+ *    inline, and the Tool's answer should not change, but it must not vanish.
+ *
+ * Every guard in the repositories cites this list. A new one has a rule to
+ * follow rather than a precedent to pick from.
  */
 export function database(): Database | null {
   return resolve().open?.db ?? null;

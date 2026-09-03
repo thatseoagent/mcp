@@ -36,6 +36,7 @@
  * generic sentence where the specific one existed. Same question, same shape now.
  */
 import { readOptionalConfig } from "./required-config";
+import { fetchThirdPartyApi } from "./http-client";
 
 export type KnowledgeGraphMatch = {
   /** `null` when we did not find out. Never a stand-in for "no". */
@@ -52,9 +53,11 @@ export async function lookupKnowledgeGraph(brandName: string): Promise<Knowledge
 
   try {
     const qs = new URLSearchParams({ query: brandName, key, limit: "1" });
-    const res = await fetch(`https://kgsearch.googleapis.com/v1/entities:search?${qs}`, {
-      signal: AbortSignal.timeout(8_000),
-    });
+    // Paced and scoped like the other fixed-API reads. See `fetchThirdPartyApi`.
+    const res = await fetchThirdPartyApi(
+      `https://kgsearch.googleapis.com/v1/entities:search?${qs}`,
+      { timeout: 8_000 },
+    );
     if (!res.ok) return { found: null, reason: `the Knowledge Graph API returned HTTP ${res.status}` };
     const data = (await res.json()) as { itemListElement?: unknown[] };
     return { found: (data.itemListElement?.length ?? 0) > 0 };

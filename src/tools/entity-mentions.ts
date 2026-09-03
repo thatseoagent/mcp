@@ -12,6 +12,8 @@ import { lookupWikidata } from "../lib/wikidata-check";
 import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
 import { toolError, toolText } from "../lib/tool-result";
+import { lookupWikipedia } from "../lib/wikipedia-check";
+import { lookupReddit } from "../lib/reddit-check";
 
 export const schema = {
   ...refreshable,
@@ -148,88 +150,58 @@ function fromHead(
   };
 }
 
-/** One Wikipedia edition. `null` when it did not answer; `false` when it has no article. */
-async function wikipediaSummary(
-  brand: string,
-  lang: string,
-): Promise<{ found: boolean; title?: string; url?: string; status?: number }> {
-  const res = await fetch(
-    `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(brand)}`,
-    {
-      signal: AbortSignal.timeout(LOOKUP_TIMEOUT),
-      // Wikipedia's API policy asks for a descriptive agent with a way to reach
-      // the operator.
-      headers: { "User-Agent": PAGE_AUDIT_USER_AGENT },
-    },
-  );
-  if (res.status === 404) return { found: false };
-  if (!res.ok) return { found: false, status: res.status };
-  const data = (await res.json()) as {
-    title?: string;
-    content_urls?: { desktop?: { page?: string } };
+/**
+ * One result from an API-shaped lookup, so the API-shaped platforms cannot drift
+ * apart on what a 429 means either.
+ *
+ * The counterpart of {@link fromHead}, which existed for the three URL-shaped
+ * platforms while these two re-derived `!ok → not-evaluated` per probe.
+ */
+function fromLookup(
+  platform: string,
+  match: { found: boolean | null; reason?: string; url?: string },
+  present: string,
+  absent: string,
+): EntityPlatformResult {
+  if (match.found === null) {
+    return {
+      platform,
+      found: false,
+      status: "not-evaluated",
+      detail: notScored(match.reason ?? `${platform} did not answer`),
+    };
+  }
+  return {
+    platform,
+    found: match.found,
+    url: match.found ? match.url : undefined,
+    detail: match.found ? present : absent,
   };
-  return { found: true, title: data.title, url: data.content_urls?.desktop?.page };
 }
 
-/**
- * `language` is the page's, and English is the fallback rather than the only try.
- *
- * `en.wikipedia.org` hard-coded meant a Spanish company with a Spanish article and
- * no English one was reported as having no Wikipedia presence.
- *
- * Asymmetric, so it costs nothing in the common case: an article found in the
- * page's own language is conclusive and English is never asked. Only a negative
- * spends the second request, because a brand writing in Spanish may perfectly well
- * have an English article and nothing else.
- */
 async function checkWikipedia(
   brand: string,
   language: string | null,
 ): Promise<EntityPlatformResult> {
-  try {
-    const editions = language && language !== "en" ? [language, "en"] : ["en"];
-    let lastStatus: number | undefined;
+  const match = await lookupWikipedia(brand, language);
+  return fromLookup(
+    "Wikipedia",
+    match,
+    match.title ? `Article: "${match.title}"` : "Article found",
+    `No Wikipedia article found (searched ${match.searched
+      .map((lang) => `${lang}.wikipedia.org`)
+      .join(" and ")})`,
+  );
+}
 
-    for (const lang of editions) {
-      const hit = await wikipediaSummary(brand, lang);
-      if (hit.found) {
-        return {
-          platform: "Wikipedia",
-          found: true,
-          url: hit.url,
-          detail: hit.title ? `Article: "${hit.title}" (${lang}.wikipedia.org)` : "Article found",
-        };
-      }
-      if (hit.status) lastStatus = hit.status;
-    }
-
-    if (lastStatus !== undefined) {
-      // A 429 or a 5xx is not evidence that the brand has no article.
-      return {
-        platform: "Wikipedia",
-        found: false,
-        status: "not-evaluated",
-        detail: notScored(`Wikipedia answered HTTP ${lastStatus}`),
-      };
-    }
-    return {
-      platform: "Wikipedia",
-      found: false,
-      detail: `No Wikipedia article found (searched ${editions
-        .map((lang) => `${lang}.wikipedia.org`)
-        .join(" and ")})`,
-    };
-  } catch {
-    // The clearest instance in the file, and it stated the problem in its own
-    // output: `✗ Wikipedia — NOT FOUND` printed about a brand that may well have
-    // an article, counted into the summary as an absence nobody established.
-    return {
-      platform: "Wikipedia",
-      found: false,
-      status: "not-evaluated",
-      detail: notScored("the request to Wikipedia failed or timed out"),
-    };
-  }
+async function checkReddit(brand: string): Promise<EntityPlatformResult> {
+  const match = await lookupReddit(brand);
+  return fromLookup(
+    "Reddit",
+    match,
+    `${match.threads} thread(s) found`,
+    "No threads found",
+  );
 }
 
 async function checkWikidata(
@@ -257,44 +229,6 @@ async function checkWikidata(
     };
   }
   return { platform: "Wikidata", found: false, detail: "No matching Wikidata entity" };
-}
-
-async function checkReddit(brand: string): Promise<EntityPlatformResult> {
-  try {
-    const qs = new URLSearchParams({ q: brand, sort: "relevance", limit: "5" });
-    const res = await fetch(`https://www.reddit.com/search.json?${qs}`, {
-      signal: AbortSignal.timeout(LOOKUP_TIMEOUT),
-      headers: { "User-Agent": PAGE_AUDIT_USER_AGENT },
-    });
-    // Reddit rate-limits unauthenticated search hard, so this is the branch most
-    // likely to fire in a real run.
-    if (!res.ok) {
-      return {
-        platform: "Reddit",
-        found: false,
-        status: "not-evaluated",
-        detail: notScored(`Reddit answered HTTP ${res.status}`),
-      };
-    }
-    const data = (await res.json()) as { data?: { children?: unknown[] } };
-    const threadCount = data.data?.children?.length ?? 0;
-    if (threadCount > 0) {
-      return {
-        platform: "Reddit",
-        found: true,
-        url: `https://www.reddit.com/search/?q=${encodeURIComponent(brand)}`,
-        detail: `${threadCount} thread(s) found`,
-      };
-    }
-    return { platform: "Reddit", found: false, detail: "No threads found" };
-  } catch {
-    return {
-      platform: "Reddit",
-      found: false,
-      status: "not-evaluated",
-      detail: notScored("the request to Reddit failed or timed out"),
-    };
-  }
 }
 
 async function checkLinkedIn(html: string): Promise<EntityPlatformResult | null> {

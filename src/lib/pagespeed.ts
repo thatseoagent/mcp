@@ -16,6 +16,7 @@
  * `required-config.ts` and ADR-0003 for what it does when it has none.
  */
 import { createSingleFlightCache } from "./single-flight";
+import { fetchThirdPartyApi } from "./http-client";
 import { requireConfig, type ConfigRequirement } from "./required-config";
 import { UpstreamApiError } from "./upstream-api-error";
 import { isRecord } from "./type-guards";
@@ -190,12 +191,15 @@ async function fetchInsights(
     apiUrl.searchParams.append("category", category.toUpperCase().replace(/-/g, "_"));
   }
 
-  // Not `safeFetch`: this is a fixed Google endpoint rather than an
-  // Operator-supplied URL, so there is no SSRF question to answer, and it is not
-  // a site whose robots.txt is addressed to us. The signal is load-bearing rather
-  // than defensive — see PAGESPEED_REQUEST_TIMEOUT_MS.
-  const response = await fetch(apiUrl.toString(), {
-    signal: AbortSignal.timeout(PAGESPEED_REQUEST_TIMEOUT_MS),
+  // `fetchThirdPartyApi` rather than `fetchAnyStatus`: this is a fixed Google
+  // endpoint rather than an Operator-supplied URL, so there is no SSRF question
+  // to answer and it is not a site whose robots.txt is addressed to us. That
+  // reasoning was written here and acted on by calling the global `fetch`, which
+  // also opted out of the pace and of the fetch scope — neither of which the
+  // argument covers. The timeout is load-bearing rather than defensive; see
+  // PAGESPEED_REQUEST_TIMEOUT_MS.
+  const response = await fetchThirdPartyApi(apiUrl.toString(), {
+    timeout: PAGESPEED_REQUEST_TIMEOUT_MS,
   });
 
   if (!response.ok) {

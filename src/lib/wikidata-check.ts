@@ -3,6 +3,7 @@
  * Used by both ai-visibility-tools and entity-mentions-tools.
  */
 import { PAGE_AUDIT_USER_AGENT } from "./bot-identity";
+import { fetchThirdPartyApi } from "./http-client";
 
 export type WikidataMatch = {
   /**
@@ -46,8 +47,12 @@ export async function lookupWikidata(
       format: "json",
       limit: "3",
     });
-    const res = await fetch(`https://www.wikidata.org/w/api.php?${qs}`, {
-      signal: AbortSignal.timeout(8_000),
+    // Through `fetchThirdPartyApi`, which paces the request and puts it inside
+    // the fetch scope. This was a bare `fetch`, so `force_refresh` did not reach
+    // it and nothing held it to a pace — see that function for why the robots
+    // gate is exempt here and the pace is not.
+    const res = await fetchThirdPartyApi(`https://www.wikidata.org/w/api.php?${qs}`, {
+      timeout: 8_000,
       // Wikidata is on the signer's exclusion list, so this carries the identity
       // (their API policy asks for a contactable agent) without a signature.
       headers: { "User-Agent": PAGE_AUDIT_USER_AGENT },

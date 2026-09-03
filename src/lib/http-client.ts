@@ -153,6 +153,54 @@ export async function fetchAnyStatus(
 }
 
 /**
+ * A read of a fixed third-party API: Wikipedia, Wikidata, Reddit, the Knowledge
+ * Graph.
+ *
+ * ── Why this is not {@link fetchAnyStatus} ──
+ *
+ * `robots-gate.ts` names these as one of its two deliberate exemptions: "APIs
+ * with their own terms, reached at a known endpoint, and they are not what a site
+ * owner is addressing when they write a rule about our crawler." Asking
+ * `wikipedia.org/robots.txt` whether we may call Wikipedia's REST API is asking
+ * the wrong party the wrong question.
+ *
+ * The exemption lives here, in a named function, rather than in five call sites
+ * that reach for the global `fetch` and are exempt by omission. Which is what
+ * they were: `wikipedia`, `reddit`, `wikidata` and `knowledge-graph` all called
+ * `fetch` directly, so nothing distinguished "exempt on purpose" from "forgot".
+ *
+ * ── What it does apply ──
+ *
+ * **The pace.** These are real connections to somebody else's server, and the
+ * argument `robots-gate.ts` makes for pacing robots.txt applies unchanged: the
+ * recursion argument "says nothing about the request being free, and it is not".
+ * Wikipedia's API policy asks for restraint by name, and `entity-mentions`
+ * already observes in a comment that Reddit "rate-limits unauthenticated search
+ * hard, so this is the branch most likely to fire in a real run" — which is a
+ * good reason to be the client that paces itself.
+ *
+ * **The fetch scope.** `with-cache.ts` promises that `force_refresh` reaches "all
+ * the way down" past the in-process caches. These five participated in nothing,
+ * so for them the promise was vacuously true rather than kept.
+ *
+ * The SSRF guard is beside the point and applied anyway, for free: the host is a
+ * constant in our own source, and what varies is a brand name inside a query
+ * string. `http-client`'s rule — nothing else may call `fetch` on an
+ * Operator-supplied URL — was never about these.
+ */
+export async function fetchThirdPartyApi(
+  url: string,
+  options: { timeout?: number; headers?: Record<string, string> } = {},
+): Promise<Response> {
+  await paceRequestTo(url);
+  const { response } = await safeFetch(url, {
+    signal: AbortSignal.timeout(options.timeout ?? DEFAULT_TIMEOUT),
+    headers: { "User-Agent": PAGE_AUDIT_USER_AGENT, ...options.headers },
+  });
+  return response;
+}
+
+/**
  * Fetch a URL with a timeout. Throws {@link PageFetchError} on timeout or on any
  * non-2xx response, so a caller that wants to treat a 404 as an answer rather
  * than a failure has to say so — by calling {@link fetchAnyStatus}.

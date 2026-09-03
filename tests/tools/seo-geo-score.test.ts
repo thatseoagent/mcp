@@ -159,9 +159,30 @@ describe("seo_geo_score — the indexability gate", () => {
   });
 
   it("raises the gate when robots.txt shuts Googlebot out", async () => {
-    serveGate("https://example.com/blocked", CLEAN, "User-agent: *\nDisallow: /");
+    // Googlebot by name, not `User-agent: *`. A blanket disallow shuts *us* out
+    // too, and then the Reachability Gate refuses before there is a page to
+    // score — see the test below. What this one is about is a site that lets us
+    // read it and keeps Google out, which is the case the gate exists for.
+    serveGate("https://example.com/blocked", CLEAN, "User-agent: Googlebot\nDisallow: /");
 
     expect(await scoreOf("https://example.com/blocked")).toContain("BEFORE ANYTHING ELSE");
+  });
+
+  it("declines to read a page at all when robots.txt shuts us out", async () => {
+    // The Reachability Gate honours robots.txt now, so a blanket disallow is a
+    // refusal rather than a report. It has to arrive AS a refusal: flattening it
+    // into "could not be reached" is what `RobotsDisallowedError` exists to
+    // prevent, because it sends an Operator debugging their server over a rule
+    // they wrote themselves.
+    serveGate("https://example.com/none", CLEAN, "User-agent: *\nDisallow: /");
+
+    const result = await seoGeoScore({ url: "https://example.com/none" });
+    const text = result.content.map((part) => part.text).join("\n");
+
+    expect(result.isError).toBe(true);
+    expect(text).toContain("robots.txt disallows");
+    expect(text).not.toContain("could not be reached");
+    expect(text).not.toContain("CATEGORY BREAKDOWN");
   });
 
   it("does not raise the gate because an AI crawler is blocked", async () => {

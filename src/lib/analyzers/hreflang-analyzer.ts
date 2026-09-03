@@ -8,8 +8,7 @@ import pLimit from "p-limit";
 import { XMLParser } from "fast-xml-parser";
 import { type Result, success, failure } from "../type-guards";
 import { notScored } from "./scored-checks";
-import { clearToFetch, fetchWithTimeout, validateUrl } from "../http-client";
-import { safeFetch } from "../ssrf-guard";
+import { fetchAnyStatus, fetchWithTimeout, validateUrl } from "../http-client";
 import { PAGE_AUDIT_USER_AGENT } from "../bot-identity";
 import {
   validateLanguageCode,
@@ -436,20 +435,16 @@ async function readAlternates(
 /**
  * One alternate URL.
  *
- * `safeFetch` rather than `fetchWithTimeout`, because that one throws on every
- * non-2xx and `PageFetchError` does not carry the status — so telling a 404 from
- * a 429 through it means regexing an error message, which three other modules
- * already do with three different answers (#345).
+ * `fetchAnyStatus` rather than `fetchWithTimeout`, because that one throws on
+ * every non-2xx, and here the status IS the finding. The original note said
+ * `PageFetchError` "does not carry the status" and so this had to assemble the
+ * fetch by hand; the error carries `status` as a field now, and the fetcher hands
+ * back the response, so neither the regex nor the assembly is needed.
  */
 async function readAlternate(href: string, wantBody: boolean): Promise<AlternateRead> {
   const method = wantBody ? "GET" : "HEAD";
   try {
-    await clearToFetch(href);
-    const { response } = await safeFetch(href, {
-      method,
-      signal: AbortSignal.timeout(10_000),
-      headers: { "User-Agent": PAGE_AUDIT_USER_AGENT },
-    });
+    const { response } = await fetchAnyStatus(href, { method, timeout: 10_000 });
     // Split the way `classifyRobotsStatus` splits it: 404 and 410 are the file
     // not being there, which for an hreflang target IS the finding. Everything
     // else — a WAF's 403, a 429, a 5xx, a 999, a timeout — is a conversation we

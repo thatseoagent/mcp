@@ -5,11 +5,18 @@
  * re-validates every redirect hop. Nothing else in the codebase should call
  * `fetch` on an Operator-supplied URL directly.
  *
- * Two obligations ride on every outbound request and are stated once, in
- * {@link clearToFetch}: the site's robots.txt has to allow it, and this server
- * has to hold itself to a pace. Both used to live only in the site crawler; they
- * bind every fetch now, because a site owner writing `Disallow` for our product
- * token means all of them.
+ * Two obligations ride on every outbound request: the site's robots.txt has to
+ * allow it, and this server has to hold itself to a pace. Both used to live only
+ * in the site crawler; they bind every fetch now, because a site owner writing
+ * `Disallow` for our product token means all of them.
+ *
+ * They are stated once, in `clearToFetch`, and applied once, as `safeFetch`'s
+ * per-hop hook — which is what makes "every outbound request" mean it. Above the
+ * hop loop, one robots check and one pacing slot covered a chain of up to six
+ * requests. And because the guards now travel *with* the fetcher rather than
+ * beside it, {@link fetchAnyStatus} exists: there was no way to read a status
+ * without throwing, so nine modules assembled the pair by hand and two of them
+ * left the guards out.
  *
  * Web Bot Auth request signing is the one thing from the retired implementation
  * that is genuinely absent. It signed requests with a key registered to a domain
@@ -73,8 +80,22 @@ export function fetchHtml(url: string): Promise<string> {
  * Both throw rather than returning a verdict — a refusal is the whole answer to
  * the caller's question, and both errors are written to be read out to whoever
  * asked.
+ *
+ * ── Private, and why that took a change ──
+ *
+ * This was exported, and its own docstring argued for "one function rather than
+ * two calls at each site, so a fetch path cannot honour one and forget the
+ * other". The argument was right and stopped one level too low: the pairing that
+ * actually got forgotten was `clearToFetch`-with-`safeFetch`. Nine call sites
+ * assembled it by hand because no fetcher here would hand back a response
+ * without throwing on a non-2xx — and two of them, the Reachability Gate and the
+ * well-known reads, omitted the guards entirely.
+ *
+ * {@link fetchAnyStatus} is the fetcher those nine wanted, so this is no longer
+ * anybody's to call. It is handed to `safeFetch` as its per-hop hook, which is
+ * also what puts a redirect chain inside the budget.
  */
-export async function clearToFetch(
+async function clearToFetch(
   url: string,
   userAgent: string = PAGE_AUDIT_USER_AGENT,
 ): Promise<void> {
@@ -83,21 +104,78 @@ export async function clearToFetch(
 }
 
 /**
+ * The guards, as `safeFetch` takes them.
+ *
+ * Passed by every fetcher in this module and by nobody else, which is what makes
+ * "the two obligations ride on every outbound request" structurally true rather
+ * than a sentence in a comment. `robots-gate` fetches robots.txt through
+ * `safeFetch` without this, which is the exemption its own docstring names.
+ */
+const GUARDED = { onHop: (url: string) => clearToFetch(url) };
+
+/**
+ * A fetch that hands back the response and its status instead of throwing.
+ *
+ * ── Why this exists ──
+ *
+ * Most callers here need to treat a 404, a 429 or a 503 as an *answer*: a
+ * sitemap that is not there, an `hreflang` target that refuses, a page a
+ * reachability gate is about to report on. {@link fetchWithTimeout} throws on
+ * every non-2xx, so nine modules dropped to `safeFetch` and re-wrote the same
+ * four lines — `clearToFetch`, then `safeFetch` with a timeout signal and our
+ * User-Agent — with the ordering between them expressed nowhere in a type. Six
+ * got it right, two skipped the guards, and one split them.
+ *
+ * The stated reason for the bypass had also been fixed underneath it:
+ * `hreflang-analyzer` explained that `PageFetchError` "does not carry the
+ * status", and `page-fetch-error.ts` declares `readonly status: number`.
+ */
+export async function fetchAnyStatus(
+  url: string,
+  options: {
+    timeout?: number;
+    method?: string;
+    headers?: Record<string, string>;
+    /**
+     * The product token to identify as, and to ask robots.txt about.
+     *
+     * The site crawler declares a different one, and the token is what a site
+     * owner writes a rule against — so asking about one and sending another
+     * would honour a rule nobody wrote.
+     */
+    userAgent?: string;
+  } = {},
+): Promise<{ response: Response; finalUrl: string; redirectCount: number }> {
+  const userAgent = options.userAgent ?? PAGE_AUDIT_USER_AGENT;
+  return safeFetch(
+    url,
+    {
+      method: options.method,
+      signal: AbortSignal.timeout(options.timeout ?? DEFAULT_TIMEOUT),
+      headers: { "User-Agent": userAgent, ...options.headers },
+    },
+    { onHop: (hop: string) => clearToFetch(hop, userAgent) },
+  );
+}
+
+/**
  * Fetch a URL with a timeout. Throws {@link PageFetchError} on timeout or on any
  * non-2xx response, so a caller that wants to treat a 404 as an answer rather
- * than a failure has to say so.
+ * than a failure has to say so — by calling {@link fetchAnyStatus}.
  */
 export async function fetchWithTimeout(url: string, timeout = DEFAULT_TIMEOUT): Promise<Response> {
-  await clearToFetch(url);
-
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const { response } = await safeFetch(url, {
-      signal: controller.signal,
-      headers: { "User-Agent": PAGE_AUDIT_USER_AGENT },
-    });
+    const { response } = await safeFetch(
+      url,
+      {
+        signal: controller.signal,
+        headers: { "User-Agent": PAGE_AUDIT_USER_AGENT },
+      },
+      GUARDED,
+    );
 
     if (!response.ok) {
       // The explanation travels with the error: every Tool that gives up on a
@@ -140,8 +218,6 @@ export async function fetchHeaders(
   timeout = DEFAULT_TIMEOUT,
   allowAnyStatus = false,
 ): Promise<{ headers: Headers; finalUrl: string }> {
-  await clearToFetch(url);
-
   // `allowAnyStatus` is part of the key: one caller wanting headers off a 404 and
   // another refusing them are asking different questions, and sharing an entry
   // between the two would hand one of them the wrong answer.
@@ -150,11 +226,15 @@ export async function fetchHeaders(
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     try {
-      const { response, finalUrl } = await safeFetch(url, {
-        method: "HEAD",
-        signal: controller.signal,
-        headers: { "User-Agent": PAGE_AUDIT_USER_AGENT },
-      });
+      const { response, finalUrl } = await safeFetch(
+        url,
+        {
+          method: "HEAD",
+          signal: controller.signal,
+          headers: { "User-Agent": PAGE_AUDIT_USER_AGENT },
+        },
+        GUARDED,
+      );
 
       if (!allowAnyStatus && !response.ok) {
         throw PageFetchError.fromResponse(response.status);
@@ -194,6 +274,9 @@ export async function fetchWithoutRedirect(
   timeout = DEFAULT_TIMEOUT,
   extraHeaders?: Record<string, string>,
 ): Promise<Response> {
+  // The one fetcher that calls the guards itself, because it follows no
+  // redirects and so has no hop loop for `safeFetch` to hook. Each hop the
+  // caller decides to follow re-enters this function and is guarded again.
   await clearToFetch(url);
 
   const controller = new AbortController();

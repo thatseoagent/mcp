@@ -1,5 +1,4 @@
-import { safeFetch } from "./ssrf-guard";
-import { PAGE_AUDIT_USER_AGENT } from "./bot-identity";
+import { fetchAnyStatus } from "./http-client";
 import { classifyRobotsStatus } from "./analyzers/robots-ruleset";
 
 /**
@@ -45,10 +44,12 @@ import { classifyRobotsStatus } from "./analyzers/robots-ruleset";
  * Graph and Wikidata lookups live in `lib/tools/shared/`, keyed by a brand name
  * rather than an origin.
  *
- * The robots.txt gate the retired version applied to its own fetches is absent here
- * for the reason `http-client.ts` gives: it arrives with the crawl Tools. Reading a
- * well-known file is one request at a fixed path, which is what a gate would have
- * had to fetch anyway.
+ * These fetches ARE gated and paced, through `fetchAnyStatus`. An earlier version
+ * of this comment said the robots.txt gate "arrives with the crawl Tools" and was
+ * absent here; it arrived, `http-client.ts` says the two obligations bind every
+ * outbound request, and this file was not revisited. Reading `/robots.txt` itself
+ * is exempt from the gate — `robots-gate.ts` owns that exemption by path, so it
+ * cannot be forgotten here or applied twice.
  *
  * Three other modules read `/robots.txt` and are not being moved onto this:
  * `robots-analyzer` rethrows non-404s, `crawlability-analyzer` returns
@@ -104,10 +105,7 @@ export async function readWellKnown(
   }
 
   try {
-    const { response } = await safeFetch(
-      url,
-      { method, signal: AbortSignal.timeout(timeout), headers: { "User-Agent": PAGE_AUDIT_USER_AGENT } },
-    );
+    const { response } = await fetchAnyStatus(url, { method, timeout });
 
     // Classification borrowed wholesale from `robots-ruleset`, which already had to
     // name these three outcomes for #337 and is where the reasoning is written down.

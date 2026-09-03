@@ -28,8 +28,7 @@
  * rather than average over it (`lib/analyzers/scored-checks.ts`).
  */
 
-import { safeFetch } from "./ssrf-guard";
-import { clearToFetch } from "./http-client";
+import { fetchAnyStatus } from "./http-client";
 import { RobotsDisallowedError } from "./robots-gate";
 import { PAGE_AUDIT_USER_AGENT } from "./bot-identity";
 
@@ -175,11 +174,7 @@ const MAX_BODY_CHARS = 200_000;
  */
 async function readHomepage(origin: string): Promise<string | null> {
   try {
-    await clearToFetch(origin);
-    const { response } = await safeFetch(origin, {
-      signal: AbortSignal.timeout(LINK_TIMEOUT),
-      headers: { "User-Agent": PAGE_AUDIT_USER_AGENT },
-    });
+    const { response } = await fetchAnyStatus(origin, { timeout: LINK_TIMEOUT });
     if (!response.ok) return null;
     return signature(await response.text());
   } catch {
@@ -189,11 +184,7 @@ async function readHomepage(origin: string): Promise<string | null> {
 
 async function probeLink(url: string, origin: string, homepage: string | null): Promise<LinkProbe> {
   try {
-    await clearToFetch(url);
-    const { response, finalUrl } = await safeFetch(url, {
-      signal: AbortSignal.timeout(LINK_TIMEOUT),
-      headers: { "User-Agent": PAGE_AUDIT_USER_AGENT },
-    });
+    const { response, finalUrl } = await fetchAnyStatus(url, { timeout: LINK_TIMEOUT });
 
     if (!response.ok) {
       return { url, outcome: "broken", status: response.status, reason: `HTTP ${response.status}` };

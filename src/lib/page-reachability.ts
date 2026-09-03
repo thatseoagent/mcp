@@ -1,4 +1,6 @@
-import { safeFetch } from "./ssrf-guard";
+import { fetchAnyStatus } from "./http-client";
+import { RobotsDisallowedError } from "./robots-gate";
+import { CrawlBudgetError } from "./crawl-pacing";
 import { describeHttpStatus } from "./describe-http-status";
 import { PAGE_AUDIT_USER_AGENT } from "./bot-identity";
 import { createSingleFlightCache } from "./single-flight";
@@ -105,11 +107,12 @@ export function fetchAuditablePage(
 
 async function readPage(url: string, timeout: number): Promise<PageReachability> {
   try {
-    const { response } = await safeFetch(url, {
-      method: "GET",
-      signal: AbortSignal.timeout(timeout),
-      headers: { "User-Agent": PAGE_AUDIT_USER_AGENT },
-    });
+    // Through the shared fetcher, so this consults robots.txt and spends a
+    // pacing slot. It did neither: this is the FIRST fetch of every
+    // `seo_geo_score` and `ai_visibility_score` run, reading the Operator's page
+    // with our product token, and `http-client.ts` says the two obligations bind
+    // every fetch. They did not bind this one.
+    const { response } = await fetchAnyStatus(url, { method: "GET", timeout });
 
     if (!response.ok) {
       return { ok: false, status: response.status, reason: describeHttpStatus(response.status) };
@@ -131,6 +134,16 @@ async function readPage(url: string, timeout: number): Promise<PageReachability>
 
     return { ok: true, status: response.status, html, headers, finalUrl: response.url || url };
   } catch (error) {
+    // A refusal is not a failure to reach, and flattening it into one is the
+    // mistake `RobotsDisallowedError` was given its own type to prevent:
+    // "callers must not report it as a fetch failure: the page is fine, we chose
+    // not to look. Surfacing it as 'site unreachable' would send someone
+    // debugging their server over a rule they wrote on purpose." The same holds
+    // for a budget we set ourselves. Both are authored sentences that answer the
+    // Operator's question in full, so both travel to the Tool failure seam
+    // intact rather than becoming this function's generic `reason`.
+    if (error instanceof RobotsDisallowedError || error instanceof CrawlBudgetError) throw error;
+
     const message = error instanceof Error ? error.message : String(error);
     const timedOut = /abort|timeout/i.test(message);
     return {

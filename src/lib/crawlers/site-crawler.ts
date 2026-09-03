@@ -16,10 +16,9 @@
 
 import { load } from "cheerio";
 import { TITLE_LIKELY_TRUNCATED } from "../analyzers/seo-rules";
-import { safeFetch } from "../ssrf-guard";
 import { CRAWLER_USER_AGENT } from "../bot-identity";
 import { visibleTexts } from "../visible-text";
-import { paceRequestTo } from "../crawl-pacing";
+import { fetchAnyStatus } from "../http-client";
 import { isAllowedByRobots } from "../robots-gate";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -152,18 +151,19 @@ async function fetchPage(url: string, depth: number, origin: string): Promise<Pa
   let html = "";
 
   try {
-    await paceRequestTo(url);
-
     const {
       response: res,
       finalUrl: resolvedUrl,
       redirectCount,
-    } = await safeFetch(url, {
-      signal: AbortSignal.timeout(12_000),
-      headers: {
-        Accept: "text/html,application/xhtml+xml",
-        "User-Agent": CRAWLER_USER_AGENT,
-      },
+      // Through the shared fetcher, which paces every hop rather than only the
+      // first. This spent one slot for a chain of up to six requests, and
+      // `crawl-pacing.ts` sizes its per-origin ceiling on the belief that a
+      // fifty-page crawl "spends about sixty fetches counting robots.txt and
+      // redirects".
+    } = await fetchAnyStatus(url, {
+      timeout: 12_000,
+      userAgent: CRAWLER_USER_AGENT,
+      headers: { Accept: "text/html,application/xhtml+xml" },
     });
 
     statusCode = res.status;

@@ -12,8 +12,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import { logError } from './log';
 import { gunzipSync } from 'zlib';
-import { safeFetch } from './ssrf-guard';
-import { clearToFetch } from './http-client';
+import { fetchAnyStatus } from './http-client';
 import { PAGE_AUDIT_USER_AGENT } from './bot-identity';
 
 interface SitemapUrl {
@@ -133,38 +132,28 @@ export class SitemapParser {
   }
 
   private async fetchSitemap(url: string): Promise<string> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+    // Google will not read a sitemap its crawler is disallowed from, and neither
+    // will we — the guards ride inside the fetcher, which also owns the timeout
+    // that the hand-rolled `AbortController` and its `finally` used to.
+    const { response } = await fetchAnyStatus(url, { timeout: REQUEST_TIMEOUT });
 
-    try {
-      // Google will not read a sitemap its crawler is disallowed from, and
-      // neither will we.
-      await clearToFetch(url);
-      const { response } = await safeFetch(url, {
-        signal: controller.signal,
-        headers: { 'User-Agent': PAGE_AUDIT_USER_AGENT },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status} ${response.statusText}`);
-      }
-
-      const contentType = response.headers.get('content-type') || '';
-      const isGzipped =
-        url.endsWith('.gz') ||
-        contentType.includes('gzip') ||
-        contentType.includes('x-gzip');
-
-      if (isGzipped) {
-        const buffer = await response.arrayBuffer();
-        const decompressed = gunzipSync(Buffer.from(buffer));
-        return decompressed.toString('utf-8');
-      }
-
-      return await response.text();
-    } finally {
-      clearTimeout(timeout);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} ${response.statusText}`);
     }
+
+    const contentType = response.headers.get('content-type') || '';
+    const isGzipped =
+      url.endsWith('.gz') ||
+      contentType.includes('gzip') ||
+      contentType.includes('x-gzip');
+
+    if (isGzipped) {
+      const buffer = await response.arrayBuffer();
+      const decompressed = gunzipSync(Buffer.from(buffer));
+      return decompressed.toString('utf-8');
+    }
+
+    return await response.text();
   }
 }
 

@@ -45,6 +45,12 @@ export const ORIGIN_WINDOW_MS = 60_000;
  * makes is a 50-page crawl, which spends about sixty fetches counting robots.txt
  * and redirects, so an Operator working hard on one site stays far below it and
  * a loop reaches it in half a minute.
+ *
+ * "Counting redirects" was the assumption and not the behaviour: the guards sat
+ * above `safeFetch`, which follows up to five hops re-running only the SSRF
+ * check, so one slot could cover six requests and the real ceiling was loose by
+ * whatever the redirect factor happened to be. They run per hop now, which makes
+ * the sentence above true and the number below mean what it says.
  */
 export const MAX_REQUESTS_PER_ORIGIN = 300;
 

@@ -246,11 +246,29 @@ export interface SafeFetchResult {
   redirectCount: number;
 }
 
+/** How many redirect hops to follow before giving up. */
+const MAX_REDIRECTS = 5;
+
 export interface SafeFetchOptions {
-  /** Max redirect hops to follow before giving up. Default 5. */
-  maxRedirects?: number;
-  /** Recompute request headers per hop (e.g. to re-sign the new URL). */
-  buildHeaders?: (url: string) => Record<string, string>;
+  /**
+   * Run before each hop, including the first, after the URL has been validated.
+   *
+   * This is where `http-client` puts the two obligations it owes a third-party
+   * server — robots.txt and the pacing budget. They used to sit *above*
+   * `safeFetch`, which meant one robots check and one pacing slot covered a
+   * chain of up to six requests: the loop below re-ran `assertUrlAllowed` per hop
+   * and nothing else. `crawl-pacing.ts` sizes its per-origin ceiling on the
+   * belief that a fifty-page crawl "spends about sixty fetches counting
+   * robots.txt and redirects", and redirects were not being counted.
+   *
+   * Optional, and that is load-bearing: `robots-gate` fetches robots.txt through
+   * here and must not be asked for permission to do so — `robots-gate.ts` names
+   * the non-termination. It passes no hook, so the exemption is structural.
+   *
+   * Throws to refuse, because a refusal is the whole answer to the caller's
+   * question.
+   */
+  onHop?: (url: string) => Promise<void>;
 }
 
 /**
@@ -263,7 +281,7 @@ export async function safeFetch(
   init: RequestInit = {},
   options: SafeFetchOptions = {}
 ): Promise<SafeFetchResult> {
-  const maxRedirects = options.maxRedirects ?? 5;
+  const maxRedirects = MAX_REDIRECTS;
   let current = rawUrl;
   const initialOrigin = (() => {
     try { return new URL(rawUrl).origin; } catch { return null; }
@@ -271,17 +289,18 @@ export async function safeFetch(
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
     await assertUrlAllowed(current);
+    // After the SSRF check and before the connection, on every hop. A redirect
+    // that leaves the origin lands on a server we have made no promises to yet,
+    // and this is the only place that can tell there was a hop at all.
+    await options.onHop?.(current);
 
     const crossOrigin = initialOrigin !== null && new URL(current).origin !== initialOrigin;
     // Never carry credentials to a different origin reached via redirect — a
     // redirect to an attacker host must not receive the caller's Authorization
-    // or Cookie. buildHeaders re-derives per-hop headers so it is safe to keep.
-    const baseHeaders = crossOrigin
+    // or Cookie.
+    const headers = crossOrigin
       ? stripSensitiveHeaders(init.headers)
       : (init.headers as Record<string, string> | undefined);
-    const headers = options.buildHeaders
-      ? { ...baseHeaders, ...options.buildHeaders(current) }
-      : baseHeaders;
 
     const response = await fetch(current, { ...init, headers, redirect: "manual" });
 

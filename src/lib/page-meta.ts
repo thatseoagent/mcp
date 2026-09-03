@@ -17,9 +17,9 @@
  * **This performs network I/O and is deliberately bounded**, because it runs on
  * a public, unauthenticated surface:
  *
- * - Every fetch goes through {@link safeFetch}, so the SSRF guard applies to a
+ * - Every fetch goes through {@link fetchAnyStatus}, so the SSRF guard applies to a
  *   URL a stranger supplied.
- * - {@link clearToFetch} runs first, so a site that asks us not to read a
+ * - The robots and pacing guards run per hop inside it, so a site that asks us not to read a
  *   path is not read. A refusal is not an error here — it yields no metadata and
  *   the caller falls back to the slug, which is what the generator did for every
  *   page before this module existed.
@@ -29,8 +29,7 @@
  *   is at the top of the document and a 4 MB page has nothing further to tell us.
  */
 
-import { safeFetch } from "./ssrf-guard";
-import { clearToFetch } from "./http-client";
+import { fetchAnyStatus } from "./http-client";
 import { PAGE_AUDIT_USER_AGENT } from "./bot-identity";
 
 /** One page, and whatever of its own metadata we could read. Both fields are
@@ -98,11 +97,7 @@ export function extractPageMeta(html: string): { title?: string; description?: s
  */
 export async function fetchPageMeta(url: string): Promise<PageMeta> {
   try {
-    await clearToFetch(url);
-    const { response } = await safeFetch(url, {
-      signal: AbortSignal.timeout(PER_PAGE_TIMEOUT_MS),
-      headers: { "User-Agent": PAGE_AUDIT_USER_AGENT },
-    });
+    const { response } = await fetchAnyStatus(url, { timeout: PER_PAGE_TIMEOUT_MS });
     if (!response.ok) return { url };
 
     const contentType = response.headers.get("content-type") ?? "";

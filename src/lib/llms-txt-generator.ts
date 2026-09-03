@@ -7,8 +7,7 @@
  * *whether* to generate; this decides what a generated file may say.
  */
 import { parseSitemap } from "./sitemap-parser";
-import { safeFetch } from "./ssrf-guard";
-import { clearToFetch } from "./http-client";
+import { fetchAnyStatus } from "./http-client";
 import { PAGE_AUDIT_USER_AGENT } from "./bot-identity";
 import { readWellKnown, type WellKnownRead } from "./well-known";
 import { extractPageMeta, fetchPagesMeta, PAGE_META_LIMIT, type PageMeta } from "./page-meta";
@@ -248,11 +247,7 @@ export const LLMS_TXT_TEMPLATE = `# Your Site Name
 
 async function fetchHomepageMeta(origin: string): Promise<{ title: string; description: string }> {
   try {
-    await clearToFetch(origin);
-    const { response: res } = await safeFetch(origin, {
-      signal: AbortSignal.timeout(8_000),
-      headers: { "User-Agent": PAGE_AUDIT_USER_AGENT },
-    });
+    const { response: res } = await fetchAnyStatus(origin, { timeout: 8_000 });
     if (!res.ok) return { title: "", description: "" };
 
     // Through `extractPageMeta`, not a second inline copy of the same two

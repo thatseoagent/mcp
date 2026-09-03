@@ -576,16 +576,15 @@ export function scoreL4(
   freshness: "fresh" | "aging" | "stale" | "unknown",
   pageKind: PageKind,
 ): { score: number; max: number; notApplicable: number; notEvaluated: number; wordCount: number; checks: AiVisibilityCheck[] } {
-  const { html } = page;
+  const { html, readable } = page;
   const checks: AiVisibilityCheck[] = [];
 
-  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? html;
-  const cleanText = bodyMatch
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  // Through `visible-text`, which this file already reads elsewhere —
+  // `page.readable.allText()` a hundred lines up — while these two checks kept a
+  // body regex of their own. The regex held `<script>` text nodes, glued
+  // `<h1>foo<br>bar</h1>` into one word and deleted React's streamed containers,
+  // all of which `visible-text.ts` handles and documents.
+  const cleanText = readable.mainContent();
   const words = cleanText.split(/\s+/).filter((w) => w.length > 0);
   const wordCount = words.length;
   const cutoff = Math.ceil(wordCount * 0.30);
@@ -723,11 +722,13 @@ export function scoreL4(
   });
 
   // 8. Core content in static HTML (3 pts)
-  const staticText = bodyMatch
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  //
+  // Every visible word, chrome included: the question is whether *any* content
+  // arrived without JavaScript. `geo-analyzer`'s `scoreTechnical` asks the same
+  // question against the same 300-character threshold, and the two disagreed —
+  // that copy joined tags with `""` and this one with `" "`, so they measured the
+  // same page and got different character counts. One derivation, one answer.
+  const staticText = readable.allText();
   const hasStaticContent = staticText.length > 300;
   checks.push({
     name: "Core content in static HTML (not JS-only)", source: STATIC_HTML_HEURISTIC,

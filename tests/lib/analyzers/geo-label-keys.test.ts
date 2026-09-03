@@ -16,6 +16,7 @@ import {
 } from "@/lib/analyzers/geo-analyzer";
 import { LABEL } from "@/lib/analyzers/geo-check-labels";
 import type { PageKind } from "@/lib/analyzers/page-identity";
+import { page } from "../../helpers/parsed-page";
 
 /**
  * A GEO check's label is a key, and nothing was holding the copies together.
@@ -73,12 +74,12 @@ function everyLabel(): Set<string> {
     const categories = [
       scoreStructuredData([], new Set<string>(), kind),
       scoreFreshness([], sitemap, kind, "https://example.com/"),
-      scoreContentStructure("<html></html>", kind),
+      scoreContentStructure(page("<html></html>"), kind),
       scoreAiCrawlerAccess(robots, "<html></html>", false),
       scoreAuthorEeat("<html></html>", [], kind),
-      scoreTechnical("<html></html>", 200),
-      scoreContentCitability("<html></html>", kind),
-      scoreCitationSignals("<html></html>", kind),
+      scoreTechnical(page("<html></html>"), 200),
+      scoreContentCitability(page("<html></html>"), kind),
+      scoreCitationSignals(page("<html></html>"), kind),
       scoreFreshnessSignals("<html></html>", {}, kind),
       scoreQueryOptimization("<html></html>", [], kind),
     ];

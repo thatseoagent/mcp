@@ -5,6 +5,7 @@ import { analyzeRobotsTxt } from "@/lib/analyzers/robots-analyzer";
 import { scoreAiCrawlerAccess } from "@/lib/analyzers/geo-analyzer";
 import * as geo from "@/lib/analyzers/geo-analyzer";
 import { scoreL1 } from "@/lib/analyzers/ai-visibility-analyzer";
+import { page as parsedPage } from "../../helpers/parsed-page";
 
 /**
  * `scoreAiCrawlerAccess` takes a `WellKnownRead` since #337: a robots.txt we could
@@ -251,8 +252,8 @@ describe("the AI-optimization guide — no unpublished mechanism claims", () => 
     const empty = "<html><head><title>t</title></head><body><p>short</p></body></html>";
     const categories = [
       scoreQueryOptimization(empty, [], "article"),
-      scoreCitationSignals(empty, "article"),
-      geo.scoreContentCitability(empty, "article"),
+      scoreCitationSignals(parsedPage(empty), "article"),
+      geo.scoreContentCitability(parsedPage(empty), "article"),
       geo.scoreFreshnessSignals(empty, {}, "article"),
       geo.scoreStructuredData([], new Set(), "article"),
     ];
@@ -314,7 +315,7 @@ describe("the AI-optimization guide — no unpublished mechanism claims", () => 
   it("leaves a Google-backed check unmarked, so the marking still means something", () => {
     // HTTP 200 is one of Google's three technical requirements. Tagging it as a
     // heuristic would be as wrong as leaving a heuristic bare.
-    const cat = geo.scoreTechnical("<html><body>hi</body></html>", 200);
+    const cat = geo.scoreTechnical(parsedPage("<html><body>hi</body></html>"), 200);
     const http = cat.checks.find((c) => c.label.includes("HTTP 200"));
     expect(http?.source?.kind).toBe("google");
     expect(geo.checkProvenance(http!)).toBeUndefined();

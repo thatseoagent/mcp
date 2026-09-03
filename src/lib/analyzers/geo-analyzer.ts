@@ -166,6 +166,7 @@ import { findNodeInAll, findNodeWith, flattenJsonLd } from "./json-ld-graph";
 import { tally, notScored, type Scorable } from "./scored-checks";
 import { parseRobots } from "./robots-ruleset";
 import { answered, textOrEmpty, type WellKnownRead } from "../well-known";
+import { countWords } from "../text-analyzer";
 import { getSchemaTypes } from "./json-ld-graph";
 import type { ParsedPage } from "./parsed-page";
 import type { KnowledgeGraphMatch } from "../knowledge-graph";
@@ -550,16 +551,17 @@ export function scoreFreshness(
  * appending a check invalidates them. One function builds the whole category now,
  * so there is nothing to sequence and nothing to mutate.
  */
-export function scoreContentStructure(html: string, pageType: PageKind): GeoCategory {
+export function scoreContentStructure(page: ParsedPage, pageType: PageKind): GeoCategory {
+  const { html, readable } = page;
   const checks: GeoCheck[] = [];
 
-  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? html;
-  const textContent = bodyMatch.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  const wordCount = textContent.split(/\s+/).filter((w) => w.length > 0).length;
+  // The page's copy, through the one module that knows how to read it. This was
+  // a body regex — one of four in this file and seven in the codebase — which
+  // kept `<script>` text nodes, glued `<h1>foo<br>bar</h1>` into one word, and
+  // deleted React's streamed containers. `visible-text.ts` handles all three and
+  // was never called from here.
+  const textContent = readable.mainContent();
+  const wordCount = countWords(textContent);
 
   // Word count is reported, not scored. It was worth 2 points above 500, which
   // is the same invented floor the page analyzers carried, and Google states
@@ -624,7 +626,11 @@ export function scoreContentStructure(html: string, pageType: PageKind): GeoCate
  * crawler really is allowed — the case this used to get right by accident and now
  * gets right on purpose.
  */
-export function scoreAiCrawlerAccess(robotsRead: WellKnownRead, html: string, llmsTxtExists: boolean): GeoCategory {
+export function scoreAiCrawlerAccess(
+  robotsRead: WellKnownRead,
+  html: string,
+  llmsTxtExists: boolean,
+): GeoCategory {
   // Empty for `absent`, which is the correct input for a parser: no file, no rules.
   // Guarded by the branch below, so `unavailable` never reaches it.
   const robotsTxt = textOrEmpty(robotsRead);
@@ -806,7 +812,8 @@ export function scoreAuthorEeat(html: string, schemas: readonly unknown[], pageT
   return category("authorEeat", "AUTHOR / E-E-A-T", checks);
 }
 
-export function scoreTechnical(html: string, httpStatus: number): GeoCategory {
+export function scoreTechnical(page: ParsedPage, httpStatus: number): GeoCategory {
+  const { html, readable } = page;
   const checks: GeoCheck[] = [];
 
   const isHttp200 = httpStatus === 200;
@@ -824,12 +831,14 @@ export function scoreTechnical(html: string, httpStatus: number): GeoCategory {
     detail: hasNoindex ? `noindex detected: ${metaRobotsContent}` : "Indexable (no noindex directive)",
   });
 
-  const bodyContent = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? html;
-  const staticText = bodyContent
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<[^>]+>/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  // Every visible word, chrome included: the question is whether *any* content
+  // arrived in the static HTML, not how much the page says.
+  //
+  // This copy and `ai-visibility-analyzer`'s are the same check with the same
+  // 300-character threshold, and they disagreed: one joined tags with `""` and
+  // the other with `" "`, so the two measured the same page and got different
+  // character counts. One derivation, one answer.
+  const staticText = readable.allText();
   const hasStaticContent = staticText.length > 300;
   checks.push({
     passed: hasStaticContent,
@@ -841,16 +850,11 @@ export function scoreTechnical(html: string, httpStatus: number): GeoCategory {
   return category("technical", "TECHNICAL", checks);
 }
 
-export function scoreContentCitability(html: string, pageType: PageKind): GeoCategory {
+export function scoreContentCitability(page: ParsedPage, pageType: PageKind): GeoCategory {
+  const { html, readable } = page;
   const checks: GeoCheck[] = [];
 
-  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? html;
-  const textContent = bodyMatch
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const textContent = readable.mainContent();
 
   // Definition patterns, EN + ES ("X es un/una…", "se refiere a", "significa"…).
   const defPattern = /\b(?:is\s+(?:a|an|the)\s+\w|refers\s+to\s+|means\s+|defined\s+as\s+|es\s+(?:un|una|el|la|uno)\s+\w|son\s+(?:un|una|unos|unas|los|las)\s+\w|se\s+refiere\s+a\s+|significa\s+|se\s+define\s+como\s+|consiste\s+en\s+)/i;
@@ -886,16 +890,11 @@ export function scoreContentCitability(html: string, pageType: PageKind): GeoCat
   return category("contentCitability", "CONTENT CITABILITY", checks);
 }
 
-export function scoreCitationSignals(html: string, pageType: PageKind): GeoCategory {
+export function scoreCitationSignals(page: ParsedPage, pageType: PageKind): GeoCategory {
+  const { html, readable } = page;
   const checks: GeoCheck[] = [];
 
-  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? html;
-  const textContent = bodyMatch
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const textContent = readable.mainContent();
 
   // The union of what the two merged checks detected. The density copy in CONTENT
   // STRUCTURED also matched written magnitudes in English and Spanish (million,
@@ -1326,6 +1325,11 @@ export interface GeoReading extends GeoScoreResult {
  */
 export function scoreGeo(input: GeoInput): GeoReading {
   const { page, html, httpStatus, responseHeaders, robotsRead, sitemapRead } = input;
+  // The four scorers that read the page's *words* take the document, because
+  // `html` and the reading of it are one thing — "a data clump wearing a
+  // parameter list", as `parsed-page.ts` puts it about the signatures it fixed
+  // elsewhere. The rest still take `html`: they match against markup structure,
+  // where the raw string is the honest input.
   const { schemas } = page;
   const pageType = page.identity.kind;
   const schemaTypes = getSchemaTypes(schemas);
@@ -1333,12 +1337,12 @@ export function scoreGeo(input: GeoInput): GeoReading {
   const categories: GeoCategory[] = [
     scoreStructuredData(schemas, schemaTypes, pageType),
     scoreFreshness(schemas, sitemapRead, pageType, page.url),
-    scoreContentStructure(html, pageType),
+    scoreContentStructure(page, pageType),
     scoreAiCrawlerAccess(robotsRead, html, input.llmsTxtExists),
     scoreAuthorEeat(html, schemas, pageType),
-    scoreTechnical(html, httpStatus),
-    scoreContentCitability(html, pageType),
-    scoreCitationSignals(html, pageType),
+    scoreTechnical(page, httpStatus),
+    scoreContentCitability(page, pageType),
+    scoreCitationSignals(page, pageType),
     scoreFreshnessSignals(html, responseHeaders, pageType),
     scoreQueryOptimization(html, schemas, pageType),
   ];

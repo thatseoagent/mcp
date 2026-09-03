@@ -6,6 +6,7 @@ import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
 import { toolError, toolText } from "../lib/tool-result";
 import { unwrap } from "../lib/type-guards";
+import { readPage, type ParsedPage } from "../lib/analyzers/parsed-page";
 
 export const schema = {
   ...refreshable,
@@ -66,14 +67,14 @@ async function fetchHtmlRaw(url: string): Promise<string | null> {
   }
 }
 
-function computeGeoSignals(html: string): GeoSignals {
-  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? html;
-  const textContent = bodyMatch
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+function computeGeoSignals(page: ParsedPage): GeoSignals {
+  const { html } = page;
+  // The seventh hand-rolled copy of this derivation, and the only one in
+  // `src/tools/`. `readableDocument` is the module that knows how to read a
+  // page's copy; the regex kept `<script>` text nodes and glued words together
+  // across `<br>`. The rest of this function matches against markup structure —
+  // `<ol>`, `<h2>`, class attributes — where the raw string is the right input.
+  const textContent = page.readable.mainContent();
 
   // Citation density: how often the copy states a figure an answer engine can quote.
   const statsPattern = /(\d+\.?\d*\s*%|\$\d[\d,]*|\d+\s+out\s+of\s+\d+|\d+x\s)/gi;
@@ -250,7 +251,7 @@ export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_content_analys
         "these four signals were not measured. Everything above was read from the page.",
     );
   } else {
-    const geoSignals = computeGeoSignals(rawHtml);
+    const geoSignals = computeGeoSignals(readPage(url, rawHtml));
     lines.push(`Citation density: ${geoSignals.citationDensity} statistical pattern(s) found`);
     lines.push(`Q&A headings: ${geoSignals.qaHeadings} question-phrased heading(s)`);
     lines.push(`Summary section: ${geoSignals.hasSummarySection ? "present" : "absent"}`);

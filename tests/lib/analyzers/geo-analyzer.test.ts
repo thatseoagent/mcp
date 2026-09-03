@@ -18,6 +18,7 @@ import {
 } from "@/lib/analyzers/geo-analyzer";
 import { getSchemaTypes } from "@/lib/analyzers/json-ld-graph";
 import type { PageKind } from "@/lib/analyzers/page-identity";
+import { page } from "../../helpers/parsed-page";
 
 /**
  * The two scorers below take a `WellKnownRead` since #337: a robots.txt or a sitemap
@@ -171,7 +172,7 @@ describe("Spanish content signals", () => {
       <h2>¿Qué es el SEO?</h2>
       <p>El SEO es una técnica de optimización para buscadores que mejora la visibilidad.</p>
     </body></html>`;
-    const cat = scoreContentCitability(html, "article");
+    const cat = scoreContentCitability(page(html), "article");
     expect(findCheck(cat, "Definition")?.passed).toBe(true);
     // Question headings moved to QUERY OPTIMIZATION when the duplicate pair was
     // merged; the Spanish question words must still be recognised there.
@@ -185,7 +186,7 @@ describe("Spanish content signals", () => {
       <h2>Fuentes</h2>
       <ul><li>Nielsen 2025</li></ul>
     </body></html>`;
-    const cat = scoreCitationSignals(html, "article");
+    const cat = scoreCitationSignals(page(html), "article");
     expect(findCheck(cat, "Statistics")?.passed).toBe(true); // "45 %" + "3 de cada 10"
     expect(findCheck(cat, "Source attribution")?.passed).toBe(true); // "según un estudio de"
     expect(findCheck(cat, "Reference")?.passed).toBe(true); // "Fuentes" heading
@@ -196,7 +197,7 @@ describe("Spanish content signals", () => {
     // The surviving pattern had to absorb the written magnitudes the dropped
     // copy detected, or Spanish pages would have quietly stopped scoring here.
     const html = `<html><body><p>En 2025, 3 millones de usuarios y un 45 % de crecimiento anual.</p></body></html>`;
-    const cat = scoreCitationSignals(html, "article");
+    const cat = scoreCitationSignals(page(html), "article");
     expect(findCheck(cat, "Statistics & numerical data")?.passed).toBe(true);
   });
 
@@ -220,7 +221,7 @@ describe("Spanish content signals", () => {
     // The check is part of CONTENT STRUCTURE rather than bolted on afterwards by
     // an exported mutator, so this reads it where it lives.
     const cat = scoreContentStructure(
-      `<html><body><h2>10 mejores herramientas de SEO</h2></body></html>`,
+      page(`<html><body><h2>10 mejores herramientas de SEO</h2></body></html>`),
       "article",
     );
     expect(findCheck(cat, "Listicle")?.passed).toBe(true);
@@ -427,7 +428,7 @@ describe("more page-type-blind checks found reviewing the whole breakdown", () =
     const noQaHtml = "<html><body><h2>Our services</h2><p>Prose.</p></body></html>";
 
     it("is gone from Content Structure, which scored the identical DOM test", () => {
-      expect(scoreContentStructure(noQaHtml, "article").checks
+      expect(scoreContentStructure(page(noQaHtml), "article").checks
         .some((c) => /Visible Q&A/i.test(c.label))).toBe(false);
     });
 
@@ -464,15 +465,15 @@ describe("more page-type-blind checks found reviewing the whole breakdown", () =
     const bare = "<html><body><p>No numbers here at all.</p></body></html>";
 
     it("is not applicable to a homepage", () => {
-      expect(find(scoreCitationSignals(bare, "homepage"), "Statistic").status).toBe("not-applicable");
+      expect(find(scoreCitationSignals(page(bare), "homepage"), "Statistic").status).toBe("not-applicable");
     });
 
     it("is still expected on an article", () => {
-      expect(find(scoreCitationSignals(bare, "article"), "Statistic").status).toBeUndefined();
+      expect(find(scoreCitationSignals(page(bare), "article"), "Statistic").status).toBeUndefined();
     });
 
     it("is gone from CONTENT STRUCTURE, which used to score it by density", () => {
-      expect(scoreContentStructure(bare, "article").checks
+      expect(scoreContentStructure(page(bare), "article").checks
         .some((c) => /Statistic/i.test(c.label))).toBe(false);
     });
   });
@@ -484,7 +485,7 @@ describe("more page-type-blind checks found reviewing the whole breakdown", () =
       ["Blockquote elements present", "citationSignals"],
       ["Reference links", "citationSignals"],
     ])("marks %s as not applicable", (label) => {
-      expect(find(scoreCitationSignals(bare, "homepage"), label).status).toBe("not-applicable");
+      expect(find(scoreCitationSignals(page(bare), "homepage"), label).status).toBe("not-applicable");
     });
 
     it("marks TL;DR / summary as not applicable", () => {
@@ -493,17 +494,17 @@ describe("more page-type-blind checks found reviewing the whole breakdown", () =
 
     it("marks listicle formatting as not applicable", () => {
       // Listicle lives in CONTENT STRUCTURE.
-      expect(find(scoreContentStructure(bare, "homepage"), "Listicle formatting").status)
+      expect(find(scoreContentStructure(page(bare), "homepage"), "Listicle formatting").status)
         .toBe("not-applicable");
     });
 
     it("still expects all of them on an article", () => {
-      const cs = scoreCitationSignals(bare, "article");
+      const cs = scoreCitationSignals(page(bare), "article");
       const qo = scoreQueryOptimization(bare, [], "article");
       expect(find(cs, "Blockquote elements present").status).toBeUndefined();
       expect(find(cs, "Reference links").status).toBeUndefined();
       expect(find(qo, "TL;DR / summary").status).toBeUndefined();
-      expect(find(scoreContentStructure(bare, "article"), "Listicle formatting").status)
+      expect(find(scoreContentStructure(page(bare), "article"), "Listicle formatting").status)
         .toBeUndefined();
     });
   });
@@ -556,12 +557,12 @@ describe("a category derives its own arithmetic", () => {
     return [
       scoreStructuredData([], new Set<string>(), pageType),
       scoreFreshness([], sitemapFound(""), pageType),
-      scoreContentStructure(html, pageType),
+      scoreContentStructure(page(html), pageType),
       scoreAiCrawlerAccess(robotsFound(""), html, false),
       scoreAuthorEeat(html, [], pageType),
-      scoreTechnical(html, 200),
-      scoreContentCitability(html, pageType),
-      scoreCitationSignals(html, pageType),
+      scoreTechnical(page(html), 200),
+      scoreContentCitability(page(html), pageType),
+      scoreCitationSignals(page(html), pageType),
       scoreFreshnessSignals(html, {}, pageType),
       scoreQueryOptimization(html, [], pageType),
     ];
@@ -608,8 +609,8 @@ describe("a category derives its own arithmetic", () => {
   it("derives the totals from every check the category holds, listicle included", () => {
     const html = "<html><body><h2>10 best tools</h2><ol><li>a</li><li>b</li><li>c</li></ol></body></html>";
 
-    const article = scoreContentStructure(html, "article");
-    const homepage = scoreContentStructure(html, "homepage");
+    const article = scoreContentStructure(page(html), "article");
+    const homepage = scoreContentStructure(page(html), "homepage");
 
     // This used to assert that a mutator rebuilt the totals it had just
     // invalidated. One function builds the category, so what is left to pin is
@@ -699,12 +700,12 @@ describe("each signal is counted once", () => {
     return [
       scoreStructuredData([], new Set<string>(), pageType),
       scoreFreshness([], sitemapFound(""), pageType),
-      scoreContentStructure(html, pageType),
+      scoreContentStructure(page(html), pageType),
       scoreAiCrawlerAccess(robotsFound(""), html, false),
       scoreAuthorEeat(html, [], pageType),
-      scoreTechnical(html, 200),
-      scoreContentCitability(html, pageType),
-      scoreCitationSignals(html, pageType),
+      scoreTechnical(page(html), 200),
+      scoreContentCitability(page(html), pageType),
+      scoreCitationSignals(page(html), pageType),
       scoreFreshnessSignals(html, {}, pageType),
       scoreQueryOptimization(html, [], pageType),
     ];
@@ -743,7 +744,7 @@ describe("each signal is counted once", () => {
 
     // Statistics: two absolute matches but a low density in a long body.
     const long = `<html><body><p>${"word ".repeat(3000)} 40% and $50</p></body></html>`;
-    expect(scoreCitationSignals(long, "article").checks.find((c) => /statistic/i.test(c.label))!.passed).toBe(true);
+    expect(scoreCitationSignals(page(long), "article").checks.find((c) => /statistic/i.test(c.label))!.passed).toBe(true);
 
     // Question heading without a question mark, which only the broader test caught.
     const q = "<html><body><h2>How does indexing work</h2></body></html>";

@@ -1,0 +1,66 @@
+# What has to hold before a change lands.
+#
+# The occasion for writing it: five type errors were committed in one afternoon
+# because `pnpm typecheck` was read after the commit rather than before it. Every
+# step below is a command that already existed and was run when somebody
+# remembered to.
+#
+# Three jobs rather than one, so a failure names itself. `typecheck` and `test`
+# are hermetic — the unit suite runs with `TSA_DB_PATH=off` and a stubbed `fetch`
+# — and `e2e` spawns the built server and fetches a real page over the network,
+# which is a different kind of red: it can fail for a reason that is nobody's
+# change. Keeping it separate means a network blip cannot be mistaken for a
+# broken build, and cannot hide one either.
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+# A second push to the same branch makes the first run's answer irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          # `engines.node` in package.json, and the version `better-sqlite3`
+          # prebuilds are resolved against.
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Builds first: `pnpm test:e2e` runs `pnpm build`, and the suite asserts
+      # against the artifact rather than the source. A stale `dist/` is why this
+      # suite once appeared to fail six tests that were fine.
+      - run: pnpm test:e2e

@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>That SEO Agent — MCP server</title>
+<meta name="description" content="A local, read-only MCP server exposing SEO analysis Tools over loopback.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2056%2056%22%20fill%3D%22none%22%3E%3Crect%20width%3D%2256%22%20height%3D%2256%22%20fill%3D%22%23FF4E20%22%2F%3E%3Cg%20transform%3D%22translate(13%2013)%20scale(1.25)%22%20fill%3D%22none%22%20stroke%3D%22%23F8F5F1%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20width%3D%2216%22%20height%3D%2212%22%20x%3D%224%22%20y%3D%228%22%20rx%3D%222%22%2F%3E%3Cpath%20d%3D%22M12%208V4H8%22%2F%3E%3Cpath%20d%3D%22M2%2014h2%22%2F%3E%3Cpath%20d%3D%22M20%2014h2%22%2F%3E%3Cpath%20d%3D%22M15%2013v2%22%2F%3E%3Cpath%20d%3D%22M9%2013v2%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E">
+<style>
+  /* The type stack names the brand faces and never fetches them. */
+  :root {
+    --paper: #F8F5F1;
+    --surface: #FFFFFF;
+    --raised: #F1ECE3;
+    --rule: #E7E0D8;
+    --rule-strong: #D6CCC0;
+    --display: #1C1815;
+    --primary: #2E2822;
+    --secondary: #5F564E;
+    --quiet: #736A5F;
+    --lamp: #C4331A;
+    --sans: "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "Space Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--primary);
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 300;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .sheet { max-width: 1080px; margin: 0 auto; padding: 0 24px 96px; }
+
+  /* Every label on the page: mono, uppercase, letter-spaced. */
+  .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    line-height: 1;
+    color: var(--quiet);
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 32px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  header .wordmark {
+    font-size: 24px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--display);
+    line-height: 1.1;
+  }
+  header .role { display: block; margin-top: 6px; }
+
+  /* An editorial split, not a centred hero. */
+  .hero {
+    display: grid;
+    grid-template-columns: 3fr 1fr;
+    border-bottom: 1px solid var(--rule);
+  }
+  .hero .lead { padding: 56px 40px 56px 0; }
+  .hero .rail {
+    border-left: 1px solid var(--rule);
+    display: flex;
+    flex-direction: column;
+  }
+
+  h1 {
+    font-size: clamp(40px, 6vw, 76px);
+    font-weight: 700;
+    line-height: 0.96;
+    letter-spacing: -0.04em;
+    color: var(--display);
+    margin: 16px 0 24px;
+  }
+  /* The one lamp: a single word, at display scale, where AA-large applies. */
+  h1 em { font-style: normal; color: var(--lamp); }
+
+  .lede { max-width: 54ch; color: var(--secondary); margin: 0; }
+
+  /* Depth is a whiter surface plus a hairline. No shadow anywhere on this page. */
+  .cell {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 24px;
+  }
+  .readout {
+    border-bottom: 1px solid var(--rule);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 24px 0 24px 24px;
+    flex: 1;
+    justify-content: center;
+  }
+  .readout:last-child { border-bottom: 0; }
+  .stat {
+    font-family: var(--mono);
+    font-size: clamp(32px, 4vw, 52px);
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: var(--display);
+  }
+  .note { font-size: 13px; color: var(--quiet); line-height: 1.4; }
+
+  section { padding: 56px 0; border-bottom: 1px solid var(--rule); }
+  h2 {
+    font-size: 24px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--display);
+    margin: 12px 0 24px;
+  }
+  h3 { font-size: 15px; font-weight: 500; color: var(--display); margin: 0 0 8px; }
+  p { margin: 0 0 16px; max-width: 68ch; }
+  p:last-child { margin-bottom: 0; }
+
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+
+  code, pre { font-family: var(--mono); font-size: 13px; }
+  code { background: var(--raised); padding: 2px 5px; color: var(--display); }
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 20px 24px;
+    overflow-x: auto;
+    margin: 0;
+    line-height: 1.6;
+    color: var(--display);
+  }
+  pre code { background: none; padding: 0; }
+
+  ul { margin: 0; padding-left: 18px; color: var(--secondary); }
+  li { margin-bottom: 6px; }
+
+  a { color: var(--lamp); text-decoration: underline; text-underline-offset: 3px; }
+  a:hover { text-decoration-thickness: 2px; }
+  /* Never removed without a replacement. */
+  a:focus-visible { outline: 2px solid var(--lamp); outline-offset: 2px; }
+
+  .endpoint {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding-top: 24px;
+    border-top: 1px solid var(--rule-strong);
+    margin-top: 32px;
+  }
+  .endpoint .url { font-family: var(--mono); font-size: 17px; color: var(--display); }
+
+  footer { padding: 40px 0; display: flex; gap: 32px; flex-wrap: wrap; align-items: center; }
+  footer .label { color: var(--secondary); }
+
+  @media (max-width: 780px) {
+    .hero { grid-template-columns: 1fr; }
+    .hero .lead { padding: 40px 0; }
+    .hero .rail { border-left: 0; border-top: 1px solid var(--rule); }
+    .readout { padding-left: 0; }
+    .split { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <header>
+    <svg width="44" height="44" viewBox="0 0 56 56" fill="none" role="img" aria-label="That SEO Agent"><rect width="56" height="56" fill="#FF4E20"/><g transform="translate(13 13) scale(1.25)" fill="none" stroke="#F8F5F1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M12 8V4H8"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></g></svg>
+    <div>
+      <div class="wordmark">That SEO Agent</div>
+      <span class="label role">MCP server &middot; running locally</span>
+    </div>
+  </header>
+
+  <div class="hero">
+    <div class="lead">
+      <span class="label">Read-only SEO analysis</span>
+      <h1>An instrument, not a <em>dashboard</em>.</h1>
+      <p class="lede">
+        This server is running on your machine and listening on loopback. Point an MCP
+        client at the endpoint below and its Tools become available to your agent.
+        Nothing here writes to a site, a sitemap, or a Google property.
+      </p>
+      <div class="endpoint">
+        <span class="label">Endpoint</span>
+        <span class="url">http://127.0.0.1:3737/mcp</span>
+      </div>
+    </div>
+    <div class="rail">
+      <div class="readout">
+        <span class="label">Tools</span>
+        <span class="stat">55</span>
+        <span class="note">SEO analysis capabilities</span>
+      </div>
+      <div class="readout">
+        <span class="label">Prompts</span>
+        <span class="stat">3</span>
+        <span class="note">Workflows that chain them</span>
+      </div>
+      <div class="readout">
+        <span class="label">Playbooks</span>
+        <span class="stat">3</span>
+        <span class="note">Readable under seo://</span>
+      </div>
+    </div>
+  </div>
+
+  <section>
+    <span class="label">Two halves</span>
+    <h2>What works right now, and what needs a login</h2>
+    <div class="split">
+      <div class="cell">
+        <h3>No credentials at all</h3>
+        <p>
+          Everything named <code>seo_*</code>, plus <code>crawl_site</code>. These read a
+          site's public surface and work on any domain, including ones you do not own.
+          They need no account, no key and no database.
+        </p>
+      </div>
+      <div class="cell">
+        <h3>Your own Google data</h3>
+        <p>
+          <code>gsc_*</code>, <code>ga4_*</code> and <code>run_site_audit</code> read your
+          Search Console and Analytics through an OAuth client you create. Until you log
+          in they stay listed and say so, rather than disappearing.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="label">Connecting</span>
+    <h2>Point a client at it</h2>
+    <pre><code>{
+  "mcpServers": {
+    "thatseoagent": {
+      "url": "http://127.0.0.1:3737/mcp"
+    }
+  }
+}</code></pre>
+    <p style="margin-top:16px">
+      There is no key and no token. The server binds loopback only and refuses
+      cross-origin requests, so a web page cannot drive your Tools.
+    </p>
+  </section>
+
+  <section>
+    <span class="label">How it reports</span>
+    <h2>What this server will not do</h2>
+    <ul>
+      <li>A check that could not run is never reported as a check that passed.</li>
+      <li>An absence of findings is an absence in the rows read, not a fact about the site.</li>
+      <li>A threshold that is ours is named as ours where it is applied.</li>
+      <li>A Tool that cannot do its whole job refuses and says what to configure, rather than returning a smaller result that looks complete.</li>
+      <li>The AI-visibility and GEO scores are directional readings of visible signals, never measurements of how any AI system behaves.</li>
+    </ul>
+  </section>
+
+  <footer>
+    <span class="label">MIT licensed</span>
+    <a href="https://github.com/thatseoagent/mcp">Source</a>
+    <a href="https://github.com/thatseoagent/mcp/blob/master/docs/setup.md">Setup guide</a>
+    <a href="https://github.com/thatseoagent/mcp/tree/master/docs/adr">Decisions</a>
+  </footer>
+
+</div>
+</body>
+</html>

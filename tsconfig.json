@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2023", "dom"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    // `src/lib/server-address.json` is the one source of truth for the listening
+    // address, read by this project and by `scripts/start.mjs`, which is plain
+    // Node and cannot import TypeScript.
+    "resolveJsonModule": true,
+    "types": ["node"],
+    "paths": { "@/*": ["./src/*"] },
+    "noEmit": true
+  },
+  "include": ["xmcp-env.d.ts", "src/**/*.ts", "tests/**/*.ts", "*.config.mts"]
+}

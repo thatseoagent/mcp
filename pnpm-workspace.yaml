@@ -1,0 +1,16 @@
+# Which dependencies may run a script at install time.
+#
+# pnpm blocks install scripts by default and exits non-zero until each one is
+# answered, so this file is not optional decoration — without it `pnpm install`
+# fails on a fresh clone.
+#
+# `better-sqlite3` is a native module and needs to compile, or fetch a prebuild,
+# to be loadable at all. A blocked build there is not a warning: it is a server
+# that cannot open its database.
+#
+# `esbuild` is drizzle-kit's bundler and is only ever run by `pnpm db:generate`,
+# a development command. It does not need to build on install, so it does not
+# get to run code on install.
+allowBuilds:
+  better-sqlite3: true
+  esbuild: false

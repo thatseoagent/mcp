@@ -1,0 +1,52 @@
+{
+  "name": "thatseoagent-mcp",
+  "version": "0.1.0",
+  "description": "MCP server exposing SEO analysis tools. Runs locally over HTTP.",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "xmcp dev",
+    "start": "node scripts/start.mjs",
+    "test": "vitest run",
+    "test:e2e": "pnpm build && vitest run --config vitest.e2e.config.mts",
+    "typecheck": "tsc --noEmit",
+    "build:raw": "xmcp build",
+    "db:generate": "drizzle-kit generate",
+    "login": "node dist/login.cjs",
+    "home": "node scripts/build-home-page.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "cheerio": "^1.2.0",
+    "drizzle-orm": "^0.45.2",
+    "fast-xml-parser": "^5.11.1",
+    "google-auth-library": "^11.0.2",
+    "p-limit": "^7.3.2",
+    "tldts": "^7.4.11",
+    "xmcp": "1.1.2",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.4.0",
+    "@xmcp-dev/compiler": "1.1.2",
+    "drizzle-kit": "^0.31.10",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  },
+  "main": "./dist/http.js",
+  "files": [
+    "dist",
+    "drizzle",
+    "scripts",
+    "src/lib/server-address.json"
+  ],
+  "bin": {
+    "thatseoagent-mcp": "./scripts/start.mjs",
+    "thatseoagent-mcp-login": "./dist/login.cjs"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.xmcp/
+xmcp-env.d.ts
+.DS_Store
+
+# Nothing reads these today, but an environment file is where a stray
+# credential lands, so no variant of one is ever committed.
+.env
+.env.*
+# The template is the one variant that is meant to be committed: it names every
+# variable and holds no value for any of them.
+!.env.example
+
+# The Operator's database never leaves their machine. ADR-0001 pins it here.
+db/*
+!db/.gitkeep
+
+.claude/

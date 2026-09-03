@@ -1,0 +1,23 @@
+#!/bin/sh
+# Refuse a commit that does not compile.
+#
+# The occasion: two commits on this branch claimed "typecheck clean" and were
+# not. Both were the same order-of-operations mistake — the linter and the test
+# suite were read, `tsc` was not — and both were made in a repository that
+# already had the command, already had CI running it, and had no way to run it
+# at the moment the claim was written into the message.
+#
+# `typecheck` and `lint` only: together they take a few seconds, so this is a
+# gate rather than a wait. The suites stay in CI and in `pnpm verify`, which is
+# what to run before writing a commit message that claims anything about them.
+#
+# Enabled for this clone by `git config core.hooksPath .githooks`, which
+# `pnpm hooks` does. A hook in `.git/hooks` is not versioned and therefore is
+# not a rule anybody else inherits.
+set -e
+
+printf 'pre-commit: typecheck… '
+pnpm --silent typecheck
+printf 'ok\npre-commit: lint… '
+pnpm --silent lint >/dev/null
+printf 'ok\n'

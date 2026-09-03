@@ -13,6 +13,7 @@ import { findNodeInAll } from "./json-ld-graph";
 import { isUndatedPage, type PageKind } from "./page-identity";
 import type { ParsedPage } from "./parsed-page";
 import { patternsFor, SUPPORTED_LANGUAGES } from "./answer-patterns";
+import { arrivedInStaticHtml } from "./content-signals";
 import { RESEARCH, CITABILITY_HEURISTIC, FRESHNESS_HEURISTIC, ROBOTS_FACT, STATIC_HTML_HEURISTIC, type CheckSource } from "./check-source";
 
 // ── Section types (co-located with the module that produces them) ──────────────
@@ -729,7 +730,7 @@ export function scoreL4(
   // that copy joined tags with `""` and this one with `" "`, so they measured the
   // same page and got different character counts. One derivation, one answer.
   const staticText = readable.allText();
-  const hasStaticContent = staticText.length > 300;
+  const hasStaticContent = arrivedInStaticHtml(readable);
   checks.push({
     name: "Core content in static HTML (not JS-only)", source: STATIC_HTML_HEURISTIC,
     passed: hasStaticContent,

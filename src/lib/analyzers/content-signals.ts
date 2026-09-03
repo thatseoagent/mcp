@@ -39,6 +39,28 @@ import { patternsFor } from "./answer-patterns";
 const LISTICLE_MINIMUM = 3;
 
 /**
+ * How much visible text a page needs before we call its copy present.
+ *
+ * Low on purpose: the question is whether *any* content arrived without
+ * JavaScript, not whether the page says enough. `geo-analyzer`'s `scoreTechnical`
+ * and `ai-visibility`'s L4 both asked it against this number and each derived
+ * the text its own way, which is how they came to disagree about one page.
+ */
+const STATIC_CONTENT_MINIMUM = 300;
+
+/**
+ * Did the page's copy arrive in the HTML, or does it need a browser?
+ *
+ * The one question three surfaces ask, and the answer decides more than a score:
+ * a rule that claims a body element is *absent* is answering a question about the
+ * bytes we were served rather than about the page Google indexes, so it must not
+ * fire on a shell. See `seo-rules.ts`.
+ */
+export function arrivedInStaticHtml(readable: ReadableDocument): boolean {
+  return readable.allText().length > STATIC_CONTENT_MINIMUM;
+}
+
+/**
  * The words a numbered heading uses, English and Spanish.
  *
  * Structural rather than in `answer-patterns` because the pattern is a *number

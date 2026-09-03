@@ -3,6 +3,8 @@ import { fetchHtml } from "../http-client";
 import { readPage } from "./parsed-page";
 import { declaredLanguage } from "./page-language";
 import { countWords } from "../text-analyzer";
+import { arrivedInStaticHtml } from "./content-signals";
+import { notScored } from "./scored-checks";
 import { annotate, GOOGLE_SAYS, agentOperability } from "./check-source";
 import { auditAgentOperability, type AgentOperabilityResult } from "./agent-operability";
 import {
@@ -39,6 +41,15 @@ export interface OnPageSeoResult {
   jsonLd: unknown[];
   hreflang: { lang: string; href: string }[];
   issues: string[];
+  /**
+   * The rules that could not be asked of this page, and why.
+   *
+   * Separate from `issues` for the reason `seo-llms-txt` learned the hard way:
+   * `issues` is what to fix, so a `notScored(...)` sentence in it renders as
+   * "Fix: Not scored: … This is not a finding about the page". These are
+   * questions we failed to ask, not answers about the page.
+   */
+  notes: string[];
 }
 
 // Was a third, private user agent pointing at +https://github.com/seo-mcp — a URL
@@ -180,7 +191,8 @@ export async function analyzeOnPageSeo(
   });
 
   // ── Issues ──
-  const issues = detectIssues({
+  const { issues, notes } = detectIssues({
+    contentArrivedInStaticHtml: arrivedInStaticHtml(readable),
     title,
     description,
     canonical,
@@ -222,6 +234,7 @@ export async function analyzeOnPageSeo(
     jsonLd,
     hreflang,
     issues,
+    notes,
   };
 }
 
@@ -291,6 +304,8 @@ function extractCharset($: CheerioAPI): string | null {
 }
 
 interface ParsedPage {
+  /** Whether the page's copy arrived in the HTML. See `content-signals.ts`. */
+  contentArrivedInStaticHtml: boolean;
   title: string | null;
   description: string | null;
   canonical: string | null;
@@ -320,11 +335,13 @@ function pageFacts(data: ParsedPage): PageFacts {
     lang: data.lang,
     imagesTotal: data.totalImages,
     imagesMissingAlt: data.withoutAlt.length,
+    contentArrivedInStaticHtml: data.contentArrivedInStaticHtml,
   };
 }
 
-function detectIssues(data: ParsedPage): string[] {
+function detectIssues(data: ParsedPage): { issues: string[]; notes: string[] } {
   const issues: string[] = [];
+  const notes: string[] = [];
 
   // Title, description, H1, canonical, viewport, lang and alt text are all SEO
   // Rules, and this file no longer states any of them. Each one used to be an
@@ -333,8 +350,20 @@ function detectIssues(data: ParsedPage): string[] {
   // 60-character title after this file had moved to 70.
   //
   // The rules decide; this file renders their verdicts for a practitioner.
-  for (const verdict of evaluatePage(pageFacts(data))) {
+  const evaluated = evaluatePage(pageFacts(data));
+  for (const verdict of evaluated.verdicts) {
     issues.push(asIssueLine(verdict));
+  }
+  // Said out loud rather than dropped. A rule that claims an element is absent
+  // cannot be asked of a page whose copy a browser assembles, and staying quiet
+  // would make a React shell look like a clean page.
+  for (const id of evaluated.notEvaluated) {
+    notes.push(
+      notScored(
+        `the "${id}" rule needs the page's copy, and this page returned almost none in its HTML`,
+        "the content is most likely rendered by JavaScript; server-side rendering would make it visible to us and to any crawler that does not run scripts",
+      ),
+    );
   }
 
   // Links Google cannot follow. Reported with an example rather than a bare
@@ -375,7 +404,7 @@ function detectIssues(data: ParsedPage): string[] {
   // for ranking purposes", and the 300-word rule this file used to enforce
   // flagged every contact page and every well-made short answer.
 
-  return issues;
+  return { issues, notes };
 }
 
 // ── Section types (co-located with the module that produces them) ──────────────

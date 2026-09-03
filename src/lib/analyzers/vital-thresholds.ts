@@ -8,6 +8,20 @@
  * three. Google revises these; CLS and FID/INP have both changed since 2020.
  *
  * The limit is the single fact. Every phrasing is derived from it.
+ *
+ * ── The interface is narrower than the data ──
+ *
+ * Only `goodUnder` and `poorAbove` have callers, in `pagespeed-insights`. Six
+ * other exports had none: `vitalThreshold`, `RANKING_VITALS`, `goodBelow` and
+ * `targetPhrase` were the summary's and the help dialog's phrasings, and both
+ * surfaces retired with the web app. Those are gone — a two-line derivation from
+ * `limit` costs nothing to write again, and an export nobody calls is an
+ * interface every reader has to consider.
+ *
+ * The *record* stays whole, and `means`, `name`, `failure` and `rankingSignal`
+ * are unread today. They are Google's own figures and wordings, revised over
+ * time, and re-researching them is the expensive part; deleting an accessor is
+ * not. See ADR-0005.
  */
 
 export type VitalKey = "lcp" | "cls" | "inp" | "fcp" | "ttfb";
@@ -69,28 +83,17 @@ const THRESHOLDS: Record<VitalKey, VitalThreshold> = {
   },
 };
 
-export const VITAL_KEYS = Object.keys(THRESHOLDS) as VitalKey[];
-
-export function vitalThreshold(key: VitalKey): VitalThreshold {
-  return THRESHOLDS[key];
-}
-
-/** The vitals Google uses directly as ranking signals, in reporting order. */
-export const RANKING_VITALS = VITAL_KEYS.filter((k) => THRESHOLDS[k].rankingSignal);
 
 /**
  * A measurement in the unit a reader thinks in: milliseconds below a second,
  * seconds above it, and layout shift as the bare three-decimal score it is.
+ *
+ * Internal: the four phrasings below are the interface, and this is how they are
+ * built. It was exported and called by nobody outside.
  */
-export function formatVitalValue(value: number, unit: "ms" | "score"): string {
+function formatVitalValue(value: number, unit: "ms" | "score"): string {
   if (unit === "score") return value.toFixed(3);
   return value >= 1000 ? `${(value / 1000).toFixed(1)}s` : `${Math.round(value)}ms`;
-}
-
-/** "≤ 2.5s" — the inline hint beside a reading. */
-export function goodBelow(key: VitalKey): string {
-  const t = THRESHOLDS[key];
-  return `≤ ${formatVitalValue(t.limit, t.unit)}`;
 }
 
 /** "> 4s" — the label CrUX's third distribution bucket needs. */
@@ -103,10 +106,4 @@ export function poorAbove(key: VitalKey): string {
 export function goodUnder(key: VitalKey): string {
   const t = THRESHOLDS[key];
   return `< ${formatVitalValue(t.limit, t.unit)}`;
-}
-
-/** "under 2.5s" — the prose form, for a finding's target and the help dialog. */
-export function targetPhrase(key: VitalKey): string {
-  const t = THRESHOLDS[key];
-  return `under ${formatVitalValue(t.limit, t.unit)}`;
 }

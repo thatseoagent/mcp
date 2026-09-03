@@ -23,6 +23,15 @@
  * Modelled on `vital-thresholds.ts`, which already does this for Core Web Vitals
  * and is the one block of `report-findings` that never went stale.
  *
+ * **`reader` and `asFinding` have no live consumer.** `report-findings` retired
+ * with the web app, and `CONTEXT.md` lists Shared Report under retired
+ * vocabulary. The eleven blocks of owner-facing copy stay anyway, and ADR-0005
+ * is why — read it before deleting them, and before flagging them again.
+ *
+ * `ALL_RULE_IDS` also has no production caller. It is an **internal seam**: its
+ * test asserts no rule is stated twice, and TypeScript cannot export to a test
+ * file only. Same shape as the `score*` functions in `geo-analyzer.ts`.
+ *
  * Not to be called a Check. `GeoCheck` and `AiVisibilityCheck` carry points that
  * sum into a score; an SEO Rule carries a verdict. See
  * `docs/domain/flagged-ambiguities.md`.
@@ -74,6 +83,15 @@ export interface PageFacts {
   lang: string | null;
   imagesTotal: number;
   imagesMissingAlt: number;
+  /**
+   * Whether the page's copy arrived in the HTML we were served.
+   *
+   * A fact rather than a caller's judgement, and the rules read it themselves:
+   * see {@link evaluatePage}. `content-signals.arrivedInStaticHtml` is the one
+   * place that decides it, shared with the two scored surfaces that ask the same
+   * question.
+   */
+  contentArrivedInStaticHtml: boolean;
 }
 
 /** How a rule reads to the site's owner, or `null` when it is not their problem. */
@@ -126,7 +144,10 @@ interface SeoRule {
  * good.
  */
 export const TITLE_LIKELY_TRUNCATED = 70;
-export const DESCRIPTION_LIKELY_TRUNCATED = 165;
+// Not exported: `TITLE_LIKELY_TRUNCATED` has one outside reader, in
+// `site-crawler`, and this had none. A number nobody outside can see is a number
+// nobody outside can copy, which is the whole point of this file.
+const DESCRIPTION_LIKELY_TRUNCATED = 165;
 
 const RULES: SeoRule[] = [
   {
@@ -275,18 +296,55 @@ export interface RuleVerdict {
   facts: PageFacts;
 }
 
+/** What the rules could say about a page, and what they could not. */
+export interface PageEvaluation {
+  /** Every rule that fires, in declaration order. */
+  verdicts: RuleVerdict[];
+  /**
+   * Rules that could not be judged, because the page's copy did not arrive in
+   * the HTML.
+   *
+   * Reported rather than dropped in silence: `h1-missing` claims a body element
+   * is *absent*, and on a page whose content a browser assembles that is a
+   * statement about the bytes we were served, not about the page Google indexes.
+   * Saying nothing would make a shell look like a clean page, which is the
+   * unanswerable-read-as-answered inversion `scored-checks.ts` and
+   * `renderCoverage` exist to prevent.
+   */
+  notEvaluated: RuleId[];
+}
+
 /**
- * Every rule that fires for this page, in declaration order.
+ * Every rule that fires for this page, and every rule that could not be asked.
  *
  * The only way to learn whether a page has a problem. Callers get verdicts, not
- * measurements, so no caller is in a position to invent a threshold of its own.
+ * measurements, so no caller is in a position to invent a threshold of its own —
+ * and, since this returns both halves together, no caller is in a position to
+ * take the verdicts and drop the qualifier.
+ *
+ * ── Why the rendered-content filter moved in here ──
+ *
+ * `needsRenderedContent(verdict)` was exported for a caller to filter with, and
+ * had no caller: the guard it describes — do not claim an element is missing from
+ * a page we could not read — was applied nowhere, so `seo_analyze_page` reported
+ * "Missing H1 heading" about React shells. A seam with no adapter.
+ *
+ * Applying it here rather than re-exporting the predicate is this file's own
+ * argument, which held for thresholds and holds for this: a rule "is the only
+ * thing that can decide whether it fires", and callers "receive verdicts, never
+ * measurements".
  */
-export function evaluatePage(facts: PageFacts): RuleVerdict[] {
-  return RULES.filter((rule) => rule.fires(facts)).map((rule) => ({
-    id: rule.id,
-    rule,
-    facts,
-  }));
+export function evaluatePage(facts: PageFacts): PageEvaluation {
+  const firing = RULES.filter((rule) => rule.fires(facts));
+  const unreadable = (rule: SeoRule) =>
+    rule.needsRenderedContent === true && !facts.contentArrivedInStaticHtml;
+
+  return {
+    verdicts: firing
+      .filter((rule) => !unreadable(rule))
+      .map((rule) => ({ id: rule.id, rule, facts })),
+    notEvaluated: firing.filter(unreadable).map((rule) => rule.id),
+  };
 }
 
 /** The practitioner's line, with its provenance stamped on. */
@@ -331,13 +389,6 @@ export function asFinding<S extends string>(
 /** Every rule id, for tests that assert nothing states a rule twice. */
 export const ALL_RULE_IDS: readonly RuleId[] = RULES.map((r) => r.id);
 
-/**
- * Would this verdict be a guess on a page we could not read?
- *
- * Callers that know the page's content arrived by JavaScript drop these rather
- * than report them, because on such a page the rule answered a question about
- * the bytes we were served and not about the page Google indexes.
- */
-export function needsRenderedContent(verdict: RuleVerdict): boolean {
-  return verdict.rule.needsRenderedContent === true;
-}
+// `needsRenderedContent(verdict)` was exported here for a caller to filter with,
+// and no caller ever did. `evaluatePage` applies it, which is where a rule's own
+// decision belongs — see its comment.

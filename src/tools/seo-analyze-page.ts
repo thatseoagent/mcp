@@ -102,5 +102,15 @@ export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_analyze_page",
     }
   }
 
+  // Their own heading, because a "?" under "Issues" reads as a defect. These are
+  // rules we could not ask of this page — and printing "No issues detected"
+  // above without them would make a JavaScript shell look like a clean page.
+  if (result.notes.length > 0) {
+    lines.push("\n=== NOT MEASURED ===");
+    for (const note of result.notes) {
+      lines.push(`? ${note}`);
+    }
+  }
+
   return toolText(lines.join("\n"));
 });

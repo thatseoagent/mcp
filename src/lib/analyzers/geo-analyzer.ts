@@ -169,6 +169,7 @@ import { answered, textOrEmpty, type WellKnownRead } from "../well-known";
 import { countWords } from "../text-analyzer";
 import {
   countQuestionHeadings,
+  arrivedInStaticHtml,
   countStatistics,
   definesSomething,
   hasSummarySection,
@@ -849,7 +850,7 @@ export function scoreTechnical(page: ParsedPage, httpStatus: number): GeoCategor
   // the other with `" "`, so the two measured the same page and got different
   // character counts. One derivation, one answer.
   const staticText = readable.allText();
-  const hasStaticContent = staticText.length > 300;
+  const hasStaticContent = arrivedInStaticHtml(readable);
   checks.push({
     passed: hasStaticContent,
     label: "Content visible in static HTML (not JS-only)", source: STATIC_HTML_HEURISTIC,

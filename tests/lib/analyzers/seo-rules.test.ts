@@ -19,14 +19,63 @@ const healthy: PageFacts = {
   lang: "en",
   imagesTotal: 4,
   imagesMissingAlt: 0,
+  contentArrivedInStaticHtml: true,
 };
 
 const facts = (over: Partial<PageFacts> = {}): PageFacts => ({ ...healthy, ...over });
-const idsFor = (over: Partial<PageFacts> = {}) => evaluatePage(facts(over)).map((v) => v.id);
+const idsFor = (over: Partial<PageFacts> = {}) =>
+  evaluatePage(facts(over)).verdicts.map((v) => v.id);
 
 describe("a healthy page", () => {
   it("fires no rule", () => {
-    expect(evaluatePage(healthy)).toEqual([]);
+    expect(evaluatePage(healthy)).toEqual({ verdicts: [], notEvaluated: [] });
+  });
+});
+
+/**
+ * The guard that had no caller.
+ *
+ * `needsRenderedContent(verdict)` was exported for a caller to filter with, and
+ * none did — so `seo_analyze_page` reported "Missing H1 heading" about React
+ * shells, which is a claim about the bytes we were served rather than about the
+ * page Google indexes. `evaluatePage` applies it now, and reports what it could
+ * not ask rather than dropping it in silence.
+ */
+describe("a page whose copy did not arrive", () => {
+  const shell = facts({ h1Count: 0, contentArrivedInStaticHtml: false });
+
+  it("does not claim the H1 is missing", () => {
+    expect(evaluatePage(shell).verdicts.map((v) => v.id)).not.toContain("h1-missing");
+  });
+
+  it("says the rule could not be asked", () => {
+    expect(evaluatePage(shell).notEvaluated).toEqual(["h1-missing"]);
+  });
+
+  it("still judges the rules that do not need the copy", () => {
+    // The title and the canonical are in the `<head>`, which arrived. Dropping
+    // every rule would be the other half of the same mistake.
+    const shellWithBadHead = facts({
+      h1Count: 0,
+      titleLength: 0,
+      canonical: null,
+      contentArrivedInStaticHtml: false,
+    });
+
+    const ids = evaluatePage(shellWithBadHead).verdicts.map((v) => v.id);
+    expect(ids).toContain("title-missing");
+    expect(ids).toContain("canonical-missing");
+    expect(ids).not.toContain("h1-missing");
+  });
+
+  it("says nothing extra when the rule would not have fired anyway", () => {
+    // A shell that does have an H1. There is no unanswered question here, so
+    // reporting one would be noise.
+    expect(evaluatePage(facts({ contentArrivedInStaticHtml: false })).notEvaluated).toEqual([]);
+  });
+
+  it("judges the H1 normally once the copy is there", () => {
+    expect(evaluatePage(facts({ h1Count: 0 })).verdicts.map((v) => v.id)).toContain("h1-missing");
   });
 });
 
@@ -68,13 +117,13 @@ describe("rules fire on what they measure", () => {
  */
 describe("one verdict, two renderings", () => {
   it("gives the practitioner the measurement", () => {
-    const [verdict] = evaluatePage(facts({ titleLength: 84 }));
+    const [verdict] = evaluatePage(facts({ titleLength: 84 })).verdicts;
     expect(asIssueLine(verdict)).toContain("84 characters");
     expect(asIssueLine(verdict)).toContain("device width");
   });
 
   it("gives the reader a cost, not a measurement", () => {
-    const [verdict] = evaluatePage(facts({ titleLength: 84 }));
+    const [verdict] = evaluatePage(facts({ titleLength: 84 })).verdicts;
     const finding = asFinding(verdict, "seo");
     expect(finding?.title).toBe("Page title may be cut short in results");
     expect(finding?.value).toBe("84 chars");
@@ -82,13 +131,13 @@ describe("one verdict, two renderings", () => {
   });
 
   it("marks a heuristic as ours in the practitioner channel", () => {
-    const [verdict] = evaluatePage(facts({ h1Count: 2 }));
+    const [verdict] = evaluatePage(facts({ h1Count: 2 })).verdicts;
     expect(asIssueLine(verdict)).toContain("Accessibility");
     expect(asIssueLine(verdict)).toContain("do not affect ranking");
   });
 
   it("leaves a Google-sourced line unqualified, since that is the baseline", () => {
-    const [verdict] = evaluatePage(facts({ titleLength: 0 }));
+    const [verdict] = evaluatePage(facts({ titleLength: 0 })).verdicts;
     expect(asIssueLine(verdict)).toBe("Missing <title> tag");
   });
 });
@@ -106,7 +155,7 @@ describe("rules that are not the reader's problem", () => {
     ["h1-multiple", { h1Count: 2 }],
     ["description-long", { descriptionLength: 400 }],
   ])("%s reaches the practitioner and stops there", (id, over) => {
-    const [verdict] = evaluatePage(facts(over as Partial<PageFacts>));
+    const [verdict] = evaluatePage(facts(over as Partial<PageFacts>)).verdicts;
     expect(verdict.id).toBe(id);
     expect(asIssueLine(verdict)).toBeTruthy();
     expect(asFinding(verdict, "seo")).toBeNull();
@@ -120,9 +169,10 @@ describe("severity stays inside the glossary", () => {
       titleLength: 0, descriptionLength: 0, h1Count: 0,
       canonical: null, viewport: null, lang: null,
       imagesTotal: 3, imagesMissingAlt: 3,
+      contentArrivedInStaticHtml: true,
     };
 
-    for (const verdict of evaluatePage(broken)) {
+    for (const verdict of evaluatePage(broken).verdicts) {
       const finding = asFinding(verdict, "seo");
       if (finding) expect(allowed, finding.id).toContain(finding.severity);
     }

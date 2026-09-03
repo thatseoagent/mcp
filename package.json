@@ -10,6 +10,7 @@
     "dev": "xmcp dev",
     "start": "node scripts/start.mjs",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:e2e": "pnpm build && vitest run --config vitest.e2e.config.mts",
     "typecheck": "tsc --noEmit",
     "build:raw": "xmcp build",
@@ -31,6 +32,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.4.0",
+    "@vitest/coverage-v8": "^4.1.11",
     "@xmcp-dev/compiler": "1.1.2",
     "drizzle-kit": "^0.31.10",
     "esbuild": "^0.28.2",

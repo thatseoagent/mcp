@@ -48,7 +48,10 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
+      # With coverage, because the thresholds in `vitest.config.mts` are part of
+      # what has to hold: a module landing with no test at all is the failure
+      # they exist to catch, and it is invisible to a green suite.
+      - run: pnpm test:coverage
 
   e2e:
     runs-on: ubuntu-latest

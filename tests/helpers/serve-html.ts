@@ -1,39 +1,12 @@
-import { vi } from "vitest";
-
-type FetchInput = Parameters<typeof fetch>[0];
-
-function urlOf(input: FetchInput): string {
-  if (typeof input === "string") return input;
-  if (input instanceof URL) return input.toString();
-  return input.url;
-}
-
 /**
- * Replace `globalThis.fetch` with a stub that serves the given bodies by URL and
- * 404s everything else, so a request to an unexpected URL fails the test instead
- * of quietly passing. Restore with `restoreFetch()` in `afterEach`.
+ * Re-exported from `serve.ts`, which is the one implementation now.
  *
- * Keys are matched exactly first, then by suffix, so `"/robots.txt"` serves any
- * origin's robots file while a full URL pins one page.
+ * This file was a second fetch stub: same idea, different matching rule,
+ * different default content type, and a `restoreFetch` that captured
+ * `globalThis.fetch` at module load and so restored whatever was current the
+ * first time any file imported it. See `serve.ts` for the rest of that story.
+ *
+ * Kept as a re-export rather than deleted so the twenty-four files that import
+ * from here do not all have to change to say the same thing.
  */
-export function serveHtml(bodies: Record<string, string>): void {
-  globalThis.fetch = vi.fn(async (input: FetchInput) => {
-    const url = urlOf(input);
-    const body =
-      bodies[url] ??
-      Object.entries(bodies).find(([key]) => url.endsWith(key))?.[1];
-
-    if (body === undefined) return new Response("Not Found", { status: 404 });
-
-    return new Response(body, {
-      status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-    });
-  }) as unknown as typeof fetch;
-}
-
-const originalFetch = globalThis.fetch;
-
-export function restoreFetch(): void {
-  globalThis.fetch = originalFetch;
-}
+export { serveHtml, restoreFetch, serve, type Route, type FetchMock } from "./serve";

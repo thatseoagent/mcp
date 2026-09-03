@@ -218,8 +218,10 @@ describe("seo_geo_score — a sitemap index whose children did not load", () => 
   function serveChildren(children: Record<string, Route>): void {
     serve({
       [PAGE]: { body: HTML },
-      // Children first: `sitemap.xml` would otherwise match `sitemap-1.xml` on a
-      // substring test that runs in insertion order.
+      // Order no longer matters: `serve` matches the longest key rather than the
+      // first, so `sitemap-1.xml` wins over `sitemap.xml` on its own URL. This
+      // used to read "Children first", which was a test arranging its literals
+      // around a helper's implementation detail.
       ...children,
       "sitemap.xml": {
         body: index(Object.keys(children).map((name) => `https://example.com/${name}`)),

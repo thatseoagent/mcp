@@ -10,6 +10,7 @@ import { fetchAuditablePage } from "@/lib/page-reachability";
 import { readWellKnown } from "@/lib/well-known";
 import { resetCrawlPacing } from "@/lib/crawl-pacing";
 import { resetAllSingleFlightCaches } from "@/lib/single-flight";
+import { serve, type FetchMock, type Route } from "../helpers/serve";
 
 /**
  * The invariant this file exists to keep: **the two obligations ride on every
@@ -39,24 +40,14 @@ import { resetAllSingleFlightCaches } from "@/lib/single-flight";
  */
 
 /** Every URL `fetch` was called with, in order. */
-function urlsFetched(mock: { mock: { calls: unknown[][] } }): string[] {
+function urlsFetched(mock: FetchMock): string[] {
   return mock.mock.calls.map((call) => String(call[0]));
 }
 
-/** A `fetch` answering from a route table, defaulting to 200 with a body. */
-function routes(table: Record<string, () => Response>) {
-  const mock = vi.fn(async (input: unknown) => {
-    const url = String(input);
-    const route = table[url];
-    if (route) return route();
-    return new Response("<html>ok</html>", { status: 200 });
-  });
-  vi.stubGlobal("fetch", mock);
-  return mock;
-}
-
-const ALLOW_ALL = () => new Response("User-agent: *\nAllow: /", { status: 200 });
-const DISALLOW_ALL = () => new Response("User-agent: *\nDisallow: /", { status: 200 });
+const ALLOW_ALL: Route = { body: "User-agent: *\nAllow: /" };
+const DISALLOW_ALL: Route = { body: "User-agent: *\nDisallow: /" };
+/** Everything this file asks for that is not robots.txt or a redirect. */
+const A_PAGE: Route = { body: "<html>ok</html>" };
 
 beforeEach(() => {
   resetAllSingleFlightCaches();
@@ -86,7 +77,11 @@ describe("every fetcher consults robots.txt", () => {
 
   for (const [name, fetcher] of fetchers) {
     it(`${name} reads robots.txt before the page`, async () => {
-      const mock = routes({ "https://example.com/robots.txt": ALLOW_ALL });
+      const mock = serve({
+        "https://example.com/robots.txt": ALLOW_ALL,
+        "https://example.com/page": A_PAGE,
+        "https://example.com/llms.txt": A_PAGE,
+      });
 
       await fetcher("https://example.com/page");
 
@@ -96,7 +91,11 @@ describe("every fetcher consults robots.txt", () => {
     });
 
     it(`${name} refuses when robots.txt disallows us`, async () => {
-      routes({ "https://example.com/robots.txt": DISALLOW_ALL });
+      serve({
+        "https://example.com/robots.txt": DISALLOW_ALL,
+        "https://example.com/page": A_PAGE,
+        "https://example.com/llms.txt": A_PAGE,
+      });
 
       // `readWellKnown` answers with an outcome rather than throwing, and its
       // `unavailable` is the honest shape for "we did not find out".
@@ -114,7 +113,7 @@ describe("every fetcher consults robots.txt", () => {
     // The one exemption, and `robots-gate.ts` owns it by path so no caller can
     // forget it or apply it twice. Gating it on its own contents does not
     // terminate.
-    const mock = routes({ "https://example.com/robots.txt": DISALLOW_ALL });
+    const mock = serve({ "https://example.com/robots.txt": DISALLOW_ALL });
 
     const read = await readWellKnown("https://example.com", "/robots.txt");
 
@@ -125,14 +124,14 @@ describe("every fetcher consults robots.txt", () => {
 });
 
 describe("a redirect chain is guarded hop by hop", () => {
-  const redirect = (to: string) => () =>
-    new Response(null, { status: 301, headers: { location: to } });
+  const redirect = (to: string): Route => ({ status: 301, headers: { location: to } });
 
   it("clears each hop with the robots.txt of the origin it lands on", async () => {
-    const mock = routes({
+    const mock = serve({
       "https://example.com/robots.txt": ALLOW_ALL,
       "https://elsewhere.test/robots.txt": ALLOW_ALL,
       "https://example.com/start": redirect("https://elsewhere.test/end"),
+      "https://elsewhere.test/end": A_PAGE,
     });
 
     await fetchAnyStatus("https://example.com/start");
@@ -145,7 +144,7 @@ describe("a redirect chain is guarded hop by hop", () => {
   });
 
   it("refuses mid-chain when the origin it lands on disallows us", async () => {
-    routes({
+    serve({
       "https://example.com/robots.txt": ALLOW_ALL,
       "https://elsewhere.test/robots.txt": DISALLOW_ALL,
       "https://example.com/start": redirect("https://elsewhere.test/end"),
@@ -157,10 +156,11 @@ describe("a redirect chain is guarded hop by hop", () => {
   });
 
   it("spends a pacing slot per hop, not one for the whole chain", async () => {
-    const mock = routes({
+    const mock = serve({
       "https://example.com/robots.txt": ALLOW_ALL,
       "https://example.com/a": redirect("https://example.com/b"),
       "https://example.com/b": redirect("https://example.com/c"),
+      "https://example.com/c": A_PAGE,
     });
 
     await fetchAnyStatus("https://example.com/a");

@@ -4,6 +4,7 @@ import { lookupWikipedia } from "@/lib/wikipedia-check";
 import { lookupReddit } from "@/lib/reddit-check";
 import { resetCrawlPacing } from "@/lib/crawl-pacing";
 import { resetAllSingleFlightCaches } from "@/lib/single-flight";
+import { serve, type FetchMock, type Route } from "../helpers/serve";
 
 /**
  * The invariant this file exists to keep: **a fixed third-party API is exempt
@@ -27,21 +28,10 @@ import { resetAllSingleFlightCaches } from "@/lib/single-flight";
  * brand has no article, and a 429 is evidence of nothing.
  */
 
-function routes(table: Record<string, () => Response>) {
-  const mock = vi.fn(async (input: unknown, init?: RequestInit) => {
-    void init;
-    const url = String(input);
-    for (const [pattern, route] of Object.entries(table)) {
-      if (url.includes(pattern)) return route();
-    }
-    return new Response("{}", { status: 200 });
-  });
-  vi.stubGlobal("fetch", mock);
-  return mock;
-}
+/** Anything this file asks for that a case has not spoken about. */
+const EMPTY_JSON: Route = { body: "{}" };
 
-const urls = (mock: { mock: { calls: unknown[][] } }) =>
-  mock.mock.calls.map((call) => String(call[0]));
+const urls = (mock: FetchMock) => mock.mock.calls.map((call) => String(call[0]));
 
 beforeEach(() => {
   resetAllSingleFlightCaches();
@@ -59,8 +49,8 @@ describe("reading a fixed third-party API", () => {
   it("does not ask the API's robots.txt for permission", async () => {
     // Asking `wikipedia.org/robots.txt` whether we may call Wikipedia's REST API
     // is asking the wrong party the wrong question.
-    const mock = routes({
-      "/robots.txt": () => new Response("User-agent: *\nDisallow: /", { status: 200 }),
+    const mock = serve({
+      "/robots.txt": { body: "User-agent: *\nDisallow: /" },
     });
 
     await fetchThirdPartyApi("https://en.wikipedia.org/api/rest_v1/page/summary/Acme");
@@ -71,7 +61,7 @@ describe("reading a fixed third-party API", () => {
   });
 
   it("hands back the status instead of throwing, so a 404 stays an answer", async () => {
-    routes({ "wikipedia.org": () => new Response("", { status: 404 }) });
+    serve({ "wikipedia.org": { status: 404 } });
 
     const res = await fetchThirdPartyApi("https://en.wikipedia.org/api/rest_v1/page/summary/Acme");
 
@@ -79,7 +69,7 @@ describe("reading a fixed third-party API", () => {
   });
 
   it("identifies itself, because these APIs ask for a contactable agent", async () => {
-    const mock = routes({});
+    const mock = serve({ "https://": EMPTY_JSON });
 
     await fetchThirdPartyApi("https://www.reddit.com/search.json?q=acme");
 
@@ -91,15 +81,11 @@ describe("reading a fixed third-party API", () => {
 
 describe("the Wikipedia lookup", () => {
   it("finds an article and says where", async () => {
-    routes({
-      "wikipedia.org": () =>
-        new Response(
-          JSON.stringify({
+    serve({
+      "wikipedia.org": { body: JSON.stringify({
             title: "Acme Corporation",
             content_urls: { desktop: { page: "https://en.wikipedia.org/wiki/Acme_Corporation" } },
-          }),
-          { status: 200 },
-        ),
+          }) },
     });
 
     expect(await lookupWikipedia("Acme", "en")).toMatchObject({
@@ -110,13 +96,13 @@ describe("the Wikipedia lookup", () => {
   });
 
   it("reads a 404 as the answer it is", async () => {
-    routes({ "wikipedia.org": () => new Response("", { status: 404 }) });
+    serve({ "wikipedia.org": { status: 404 } });
 
     expect(await lookupWikipedia("Acme", "en")).toMatchObject({ found: false });
   });
 
   it("reads a 429 as no answer at all", async () => {
-    routes({ "wikipedia.org": () => new Response("", { status: 429 }) });
+    serve({ "wikipedia.org": { status: 429 } });
 
     const match = await lookupWikipedia("Acme", "en");
 
@@ -128,9 +114,8 @@ describe("the Wikipedia lookup", () => {
   });
 
   it("tries the page's own language first, and English only on a negative", async () => {
-    const mock = routes({
-      "es.wikipedia.org": () =>
-        new Response(JSON.stringify({ title: "Acme S.A." }), { status: 200 }),
+    const mock = serve({
+      "es.wikipedia.org": { body: JSON.stringify({ title: "Acme S.A." }) },
     });
 
     const match = await lookupWikipedia("Acme", "es");
@@ -144,10 +129,9 @@ describe("the Wikipedia lookup", () => {
   });
 
   it("falls back to English when the page's language has no article", async () => {
-    const mock = routes({
-      "es.wikipedia.org": () => new Response("", { status: 404 }),
-      "en.wikipedia.org": () =>
-        new Response(JSON.stringify({ title: "Acme Corporation" }), { status: 200 }),
+    const mock = serve({
+      "es.wikipedia.org": { status: 404 },
+      "en.wikipedia.org": { body: JSON.stringify({ title: "Acme Corporation" }) },
     });
 
     expect(await lookupWikipedia("Acme", "es")).toMatchObject({ found: true });
@@ -155,9 +139,9 @@ describe("the Wikipedia lookup", () => {
   });
 
   it("leaves the question open when one edition would not answer", async () => {
-    routes({
-      "es.wikipedia.org": () => new Response("", { status: 503 }),
-      "en.wikipedia.org": () => new Response("", { status: 404 }),
+    serve({
+      "es.wikipedia.org": { status: 503 },
+      "en.wikipedia.org": { status: 404 },
     });
 
     // The article could be in the edition we could not read, so "no article"
@@ -168,24 +152,23 @@ describe("the Wikipedia lookup", () => {
 
 describe("the Reddit lookup", () => {
   it("counts the threads it found", async () => {
-    routes({
-      "reddit.com": () =>
-        new Response(JSON.stringify({ data: { children: [{}, {}, {}] } }), { status: 200 }),
+    serve({
+      "reddit.com": { body: JSON.stringify({ data: { children: [{}, {}, {}] } }) },
     });
 
     expect(await lookupReddit("Acme")).toMatchObject({ found: true, threads: 3 });
   });
 
   it("reads an empty result as an answer", async () => {
-    routes({
-      "reddit.com": () => new Response(JSON.stringify({ data: { children: [] } }), { status: 200 }),
+    serve({
+      "reddit.com": { body: JSON.stringify({ data: { children: [] } }) },
     });
 
     expect(await lookupReddit("Acme")).toMatchObject({ found: false });
   });
 
   it("reads a rate limit as no answer, which is the likeliest branch", async () => {
-    routes({ "reddit.com": () => new Response("", { status: 429 }) });
+    serve({ "reddit.com": { status: 429 } });
 
     const match = await lookupReddit("Acme");
 
@@ -197,7 +180,7 @@ describe("the Reddit lookup", () => {
   });
 
   it("always says where a reader can check our work", async () => {
-    routes({ "reddit.com": () => new Response("", { status: 500 }) });
+    serve({ "reddit.com": { status: 500 } });
 
     expect((await lookupReddit("Acme")).url).toBe(
       "https://www.reddit.com/search/?q=Acme",

@@ -28,6 +28,17 @@ and `shared` are both `src/lib/` here, and `lib/mcp/tool-failure.ts` is
 **`ADR-0022`, and any ADR number above 0004** — the retired app's decision log.
 This repo's records are in [`docs/adr/`](../adr/) and start again from 0001.
 
+**`ADR-0025`** was the exception, and is no longer one. It is cited eight times
+across the three `agent-*` analyzers, twice by rule number, so those 2,579 lines
+were constrained by a record nobody here could read. Its rules are reconstructed
+in [ADR-0006](../adr/0006-the-agent-readiness-axis.md) and the citations now point
+there. Rules 1–5 were never cited and are not guessed at.
+
+**`docs/agent-discovery.md`, `docs/agent-api-surface.md`,
+`docs/agent-navigability.md`** — cited from those same module headers for "what
+these checks may claim", and retired with the web app. What survived of them is
+the axis section of ADR-0006; the module headers say so where they name the file.
+
 **`report-findings`, `CheckRow`, `cache-manager`, the shared report and the
 dashboard** — code that retired with the web app. A comment comparing this
 module's behaviour to one of those is describing a decision, not a dependency you

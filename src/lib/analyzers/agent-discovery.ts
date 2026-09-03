@@ -27,7 +27,7 @@
  * a digest against the bytes it advertises, and — for the auth chain — walks from
  * one document to the next and reports where the walk stops.
  *
- * See `docs/agent-discovery.md` for what these checks may claim, and ADR-0025 for
+ * See `docs/agent-discovery.md` (retired with the web app; see ADR-0006) for what these checks may claim, and ADR-0006 for
  * the axis. Read-only, unauthenticated, same-site: rules 6 and 7 of that ADR.
  */
 
@@ -532,7 +532,7 @@ function sameOrigin(a: string, b: string): boolean {
  *
  * eTLD+1 is the line that admits the first and refuses the second, and it is the
  * same boundary and the same unit the API tier uses for a spec's declared
- * `servers` (ADR-0025 rule 6).
+ * `servers` (ADR-0006 rule 6).
  */
 function sameSite(a: string, b: string): boolean {
   try {
@@ -587,7 +587,7 @@ function checkAuthMd(response: Probe, url: string): DiscoveryCheck {
  * digest advertised for them. `unverifiable` is a skill we never fetched — it is
  * off-site, robots disallows it, the request failed. Folding the second into the
  * first says "this digest does not match the bytes served" about bytes nobody
- * read, which is the same not-evaluated/failure conflation ADR-0025 rule 8 exists
+ * read, which is the same not-evaluated/failure conflation ADR-0006 rule 8 exists
  * to stop. Only `mismatched` costs points.
  */
 type SkillDigest =

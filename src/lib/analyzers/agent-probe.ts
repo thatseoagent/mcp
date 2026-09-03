@@ -9,7 +9,7 @@
  * eventually stops guarding.
  *
  * Everything here is read-only and unauthenticated, and that is a rule of the axis
- * rather than a property of this file — see ADR-0025.
+ * rather than a property of this file — see ADR-0006.
  */
 
 import { fetchWithoutRedirect } from "../http-client";

@@ -22,7 +22,7 @@
  *
  * Same rule as the HTTP tier: every check is an assertion about a document a
  * server served or a response it returned. Nothing here says anything about
- * ranking or citation. See `docs/agent-api-surface.md`, and ADR-0025 for the axis.
+ * ranking or citation. See `docs/agent-api-surface.md` (retired with the web app; see ADR-0006), and ADR-0006 for the axis.
  *
  * Two limits it holds to, both from #388:
  *
@@ -945,7 +945,7 @@ export async function auditAgentApiSurface(url: string): Promise<Result<AgentApi
 /**
  * Where the spec is, or where we looked for it. Informational, worth nothing.
  *
- * Not priced, and for the reason ADR-0025 records: "publishes an OpenAPI spec" is
+ * Not priced, and for the reason ADR-0006 records: "publishes an OpenAPI spec" is
  * a property of having an API at all, and a site with no API must not read as a
  * site with a failing one. The gate belongs in the other checks' `not-applicable`,
  * not in a zero here.

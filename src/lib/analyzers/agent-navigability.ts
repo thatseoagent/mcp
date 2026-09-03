@@ -12,8 +12,8 @@
  * text — legitimate, disclosed as ours, and per
  * `docs/google-search-central-conformance.md` §3.1 unfalsifiable. This is the same
  * kind of thing `agent-operability.ts` is, and for the same reason: a fact a
- * reader can reproduce. See `docs/agent-navigability.md` for what these checks
- * may and may not claim, and ADR-0025 for why the axis existed unmeasured.
+ * reader can reproduce. See `docs/agent-navigability.md` (retired with the web app; see ADR-0006) for what these checks
+ * may and may not claim, and ADR-0006 for why the axis existed unmeasured.
  *
  * ## The probes, and their limits
  *
@@ -54,6 +54,7 @@ import { validateUrl } from "../http-client";
 import {
   couldNotRun,
   curl,
+  disallowed,
   land,
   MAX_HOPS,
   probe,
@@ -175,6 +176,34 @@ function readableText(body: string, contentType: string | null, parsed?: Cheerio
   return readableDocument(parsed ?? load(body)).allText();
 }
 
+/**
+ * The `not-evaluated` shape for a probe that did not answer, whichever way.
+ *
+ * ── Why this exists ──
+ *
+ * Every check here reached for `couldNotRun` on a failed probe, and none read
+ * `blockedByRobots`. So a site whose robots.txt disallows the probe path was told
+ * "this is not a finding about the page" — which `agent-probe.ts` says is two
+ * lies at once when the cause is the page's own robots.txt: it claims innocence
+ * on the page's behalf, and it says "try again" when trying again is what we have
+ * undertaken not to do.
+ *
+ * `disallowed()` was written for exactly this and had five adapters in the two
+ * sibling tiers and none here. This tier was the one that conflated them, which
+ * is ADR-0006 rule 8's third bullet.
+ *
+ * One helper rather than a `blockedByRobots` branch in ten checks, for the reason
+ * `agent-probe.ts` gives about the same-host guard: two copies of a distinction
+ * is the copy that eventually stops drawing it.
+ */
+function noAnswer<T extends { points: number; request: string }>(
+  base: T,
+  probe: Extract<Probe, { ok: false }>,
+  reason: string,
+): T & { status: "not-evaluated"; detail: string } {
+  return probe.blockedByRobots ? disallowed(base, probe.url) : couldNotRun(base, reason);
+}
+
 function checkDistinct404(missing: Landing): AgentNavigabilityCheck {
   const probe404 = missing.probe;
   const followed = missing.hops.length > 0;
@@ -185,13 +214,13 @@ function checkDistinct404(missing: Landing): AgentNavigabilityCheck {
     source: AGENT_HTTP_FACT,
   };
 
-  if (!probe404.ok) return couldNotRun(base, `the probe request failed — ${probe404.reason}`);
+  if (!probe404.ok) return noAnswer(base, probe404, `the probe request failed — ${probe404.reason}`);
 
   if (missing.offHost) {
     // Not a zero, and not `notScored` either. The hop is a fact about the site, so
     // the sentence must not claim innocence on its behalf — but we never followed
     // it, so whether the path 404s is genuinely unknown and charging 20 points for
-    // an unasked question is the thing ADR-0025 forbids.
+    // an unasked question is the thing ADR-0006 forbids.
     return {
       ...base,
       status: "not-evaluated",
@@ -251,7 +280,7 @@ function check404Body(missing: Landing): AgentNavigabilityCheck {
     source: AGENT_HTTP_THRESHOLD,
   };
 
-  if (!probe404.ok) return couldNotRun(base, `the probe request failed — ${probe404.reason}`);
+  if (!probe404.ok) return noAnswer(base, probe404, `the probe request failed — ${probe404.reason}`);
 
   if (missing.offHost) {
     return {
@@ -314,7 +343,7 @@ function checkRedirectHygiene(landing: Landing): AgentNavigabilityCheck {
     source: AGENT_HTTP_THRESHOLD,
   };
 
-  if (!landing.probe.ok) return couldNotRun(base, `the page could not be fetched — ${landing.probe.reason}`);
+  if (!landing.probe.ok) return noAnswer(base, landing.probe, `the page could not be fetched — ${landing.probe.reason}`);
 
   const problems: string[] = [];
 
@@ -371,7 +400,7 @@ function checkMarkdownVariant(md: Probe, landing: Landing): AgentNavigabilityChe
     source: AGENT_HTTP_FACT,
   };
 
-  if (!md.ok) return couldNotRun(base, `the negotiated request failed — ${md.reason}`);
+  if (!md.ok) return noAnswer(base, md, `the negotiated request failed — ${md.reason}`);
 
   if (!isMarkdown(md.headers)) {
     return {
@@ -413,7 +442,7 @@ function checkVaryAccept(md: Probe, landing: Landing, servesMarkdown: boolean): 
     source: AGENT_HTTP_FACT,
   };
 
-  if (!md.ok) return couldNotRun(base, `the negotiated request failed — ${md.reason}`);
+  if (!md.ok) return noAnswer(base, md, `the negotiated request failed — ${md.reason}`);
 
   // One representation for everyone is not negotiation, so there is nothing for a
   // cache to get wrong. Read off the responses rather than off the check's verdict:
@@ -454,7 +483,7 @@ function checkTokenBudget(landing: Landing): AgentNavigabilityCheck {
     source: AGENT_HTTP_THRESHOLD,
   };
 
-  if (!landing.probe.ok) return couldNotRun(base, `the page could not be fetched — ${landing.probe.reason}`);
+  if (!landing.probe.ok) return noAnswer(base, landing.probe, `the page could not be fetched — ${landing.probe.reason}`);
 
   if (landing.probe.status !== 200) {
     return couldNotRun(
@@ -488,7 +517,7 @@ function checkCodeFences(md: Probe, servesMarkdown: boolean): AgentNavigabilityC
     source: AGENT_HTTP_FACT,
   };
 
-  if (!md.ok) return couldNotRun(base, `the negotiated request failed — ${md.reason}`);
+  if (!md.ok) return noAnswer(base, md, `the negotiated request failed — ${md.reason}`);
 
   if (!servesMarkdown) {
     return {
@@ -537,7 +566,7 @@ function checkAgentLinkHeaders(landing: Landing): AgentNavigabilityCheck {
     source: AGENT_HTTP_FACT,
   };
 
-  if (!landing.probe.ok) return couldNotRun(base, `the page could not be fetched — ${landing.probe.reason}`);
+  if (!landing.probe.ok) return noAnswer(base, landing.probe, `the page could not be fetched — ${landing.probe.reason}`);
 
   if (unresolved(landing.probe)) {
     return couldNotRun(
@@ -564,60 +593,105 @@ function checkAgentLinkHeaders(landing: Landing): AgentNavigabilityCheck {
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 /**
- * Audit the HTTP facts that decide whether an agent can navigate a site.
+ * The three responses every navigability check is judged on.
  *
- * The order of the probes is the order of the dependencies: the landing response
- * settles the final URL, the final URL's origin settles where to probe for a 404,
- * and the final URL is what gets asked for markdown. Three requests, plus one per
- * same-host redirect hop.
+ * Plain data, and that is the point: `Probe` and `Landing` are records, so
+ * {@link judgeNavigability} needs no test double at all — a case builds the
+ * responses it wants to describe and reads the checks back.
+ */
+export interface NavigabilityProbes {
+  /** Where the typed URL landed, and the hops it took. */
+  landing: Landing;
+  /**
+   * The probe path, landed rather than fetched once.
+   *
+   * A locale guard that answers `/x` with a 308 to `/en/x` is the common case,
+   * and stopping at the 308 would report "this site does not 404" about a site
+   * whose 404 is one hop away — which is exactly what auditing our own
+   * production site turned up.
+   */
+  missing: Landing;
+  /** The landed URL, asked for markdown. */
+  markdown: Probe;
+}
+
+/**
+ * Make the requests. The only I/O on this tier.
+ *
+ * Three, plus one per same-host redirect hop. The redirect chain settles the
+ * final URL, the final URL's origin settles where to probe for a 404, and the
+ * final URL is what gets asked for markdown — so the first request has to
+ * finish before the other two, and once it has they are independent.
+ */
+export async function probeNavigability(url: string): Promise<NavigabilityProbes> {
+  const landing = await land(url);
+  const origin = new URL(landing.finalUrl).origin;
+
+  const [missing, markdown] = await Promise.all([
+    land(`${origin}${PROBE_PATH}`),
+    probe(landing.finalUrl, "text/markdown"),
+  ]);
+
+  return { landing, missing, markdown };
+}
+
+/**
+ * Judge the responses. Pure.
+ *
+ * ── Why this is separate ──
+ *
+ * The checks were already "response in, verdict out"; what they sat behind was a
+ * function that fetched first, so the only way to reach any of them was through
+ * a stubbed `fetch`. `seo-agent-navigability.test.ts` is 90 lines against a
+ * 624-line analyzer for that reason, and the intricate parts — an off-host hop
+ * on the probe path, a 308 in front of the 404, a `Vary` that omits `Accept` —
+ * were reachable only by arranging a route table to produce them.
+ *
+ * Same split as `EeatInput` and `GeoInput`, and for the reason `CONTEXT.md`
+ * gives: an **Analyzer** is "pure, stateless … no network calls, directly
+ * unit-testable". `eeat-analyzer` records the symptom that made it move — "when
+ * a test has to stand up a network to measure something that is not the network,
+ * the interface is in the wrong place."
+ *
+ * The two sibling tiers keep their shape, and ADR-0006 says why: their gathering
+ * *is* a walk driven by what it has read, so there is no point at which the I/O
+ * has finished and the judging has not begun.
+ */
+export function judgeNavigability(
+  url: string,
+  { landing, missing, markdown }: NavigabilityProbes,
+): AgentNavigabilityResult {
+  const variant = checkMarkdownVariant(markdown, landing);
+  // The gate for the two checks below, read off the check rather than recomputed,
+  // so a site can never be told it serves markdown by one check and not by another.
+  const servesMarkdown = variant.passed === true;
+
+  const checks: AgentNavigabilityCheck[] = [
+    checkDistinct404(missing),
+    check404Body(missing),
+    checkRedirectHygiene(landing),
+    variant,
+    checkVaryAccept(markdown, landing, servesMarkdown),
+    checkTokenBudget(landing),
+    checkCodeFences(markdown, servesMarkdown),
+    checkAgentLinkHeaders(landing),
+  ];
+
+  return { url, finalUrl: landing.finalUrl, checks, ...tally(checks) };
+}
+
+/**
+ * Probe a site, then judge it. What the Tool calls.
+ *
+ * The `Result` wrapper covers the one thing that can fail — reaching the site —
+ * which is why it belongs on this half and not on {@link judgeNavigability}.
  */
 export async function auditAgentNavigability(
   url: string,
 ): Promise<Result<AgentNavigabilityResult>> {
   try {
     validateUrl(url);
-
-    const landing = await land(url);
-    const origin = new URL(landing.finalUrl).origin;
-
-    // Both wait on `land`, because both target the URL the chain landed on rather
-    // than the one that was typed. Once that is known they are independent.
-    // The probe path is landed too, not fetched once. A locale guard that answers
-    // `/x` with a 308 to `/en/x` is the common case, and stopping at the 308 would
-    // report "this site does not 404" about a site whose 404 is one hop away —
-    // which is exactly what auditing our own production site turned up.
-    const [missing, md] = await Promise.all([
-      land(`${origin}${PROBE_PATH}`),
-      probe(landing.finalUrl, "text/markdown"),
-    ]);
-
-    const variant = checkMarkdownVariant(md, landing);
-    // The gate for the two checks below, read off the check rather than recomputed,
-    // so a site can never be told it serves markdown by one check and not by another.
-    const servesMarkdown = variant.passed === true;
-
-    const checks: AgentNavigabilityCheck[] = [
-      checkDistinct404(missing),
-      check404Body(missing),
-      checkRedirectHygiene(landing),
-      variant,
-      checkVaryAccept(md, landing, servesMarkdown),
-      checkTokenBudget(landing),
-      checkCodeFences(md, servesMarkdown),
-      checkAgentLinkHeaders(landing),
-    ];
-
-    const { score, max, notApplicable, notEvaluated } = tally(checks);
-
-    return success({
-      url,
-      finalUrl: landing.finalUrl,
-      checks,
-      score,
-      max,
-      notApplicable,
-      notEvaluated,
-    });
+    return success(judgeNavigability(url, await probeNavigability(url)));
   } catch (error) {
     return failure(error instanceof Error ? error : new Error(String(error)));
   }

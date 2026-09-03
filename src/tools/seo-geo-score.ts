@@ -2,21 +2,9 @@ import { readOptionalConfig } from "../lib/required-config";
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import {
-  scoreStructuredData,
-  scoreFreshness,
-  scoreContentStructure,
-  scoreAiCrawlerAccess,
-  scoreAuthorEeat,
-  scoreTechnical,
-  scoreContentCitability,
-  scoreCitationSignals,
-  scoreFreshnessSignals,
-  scoreQueryOptimization,
-  buildRecommendations,
-  applyListicleCheck,
-  computeGeoScore,
   describeCheck,
-  type GeoCategory,
+  KNOWLEDGE_GRAPH_POINTS,
+  scoreGeo,
 } from "../lib/analyzers/geo-analyzer";
 import { readContentAge } from "../lib/analyzers/content-age";
 import { notScored } from "../lib/analyzers/scored-checks";
@@ -223,64 +211,48 @@ export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_geo_score", do
   const llmsTxtExists =
     llmsTxtResult.status === "fulfilled" && llmsTxtResult.value.outcome === "found";
 
-  const schemaTypes = getSchemaTypes(schemas);
   // One Page Identity for the whole run. Also covers localized homepages: a
   // classifier matching only a bare "/" scored /es and /index.html as generic
   // pages and marked them down for having no author or date.
-  const identity = doc.identity;
-  const pageType = identity.kind;
+  const pageType = doc.identity.kind;
 
   // Read once, next to the Page Kind it is composed with. Scores nothing: it
   // decides how loudly an age-sensitive finding is reported, not what the page
   // earned. See `content-age.ts`.
   const contentAge = readContentAge(schemas, html, pageType);
 
-  const structuredData = scoreStructuredData(schemas, schemaTypes, pageType);
-  const freshness = scoreFreshness(schemas, sitemapRead, pageType, url);
-  const contentStructure = scoreContentStructure(html);
-  const aiAccess = scoreAiCrawlerAccess(robotsRead, html, llmsTxtExists);
-  const authorEeat = scoreAuthorEeat(html, schemas, pageType);
-  const technical = scoreTechnical(html, httpStatus);
-  const citability = scoreContentCitability(html, pageType);
-  const citationSignals = scoreCitationSignals(html, pageType);
-  const freshnessSignals = scoreFreshnessSignals(html, responseHeaders, pageType);
-  const queryOptimization = scoreQueryOptimization(html, schemas, pageType);
-  // The listicle check belongs to content structure and is applied to it.
-  applyListicleCheck(contentStructure, html, pageType);
-
-  const categories: GeoCategory[] = [
-    structuredData,
-    freshness,
-    contentStructure,
-    aiAccess,
-    authorEeat,
-    technical,
-    citability,
-    citationSignals,
-    freshnessSignals,
-    queryOptimization,
-  ];
-
+  // One call. This was ten `score*` calls, a mutation of a category built two
+  // lines earlier, a ten-element array, three hand-written expressions for the
+  // Knowledge Graph points and a `computeGeoScore` — twelve steps a handler had
+  // to sequence correctly. Which categories exist and in what order is the
+  // analyzer's decision, the way `scoreEeat` already had it.
+  //
   // Checks that do not apply to this page kind, and checks we could not evaluate,
-  // leave both the earned total and the achievable maximum — so the grade reflects
+  // leave both the earned total and the achievable maximum, so the grade reflects
   // only what this page could actually be scored on.
-  const kgEnabled = Boolean(readOptionalConfig("GOOGLE_KG_API_KEY"));
-  const { score, grade, earned, applicableMax, naPoints, unevaluatedPoints } = computeGeoScore(
+  const {
+    score,
+    grade,
+    earned,
+    applicableMax,
+    naPoints,
+    unevaluatedPoints,
     categories,
-    {
-      // Three cases, not two. No key configured is our deployment and not the
-      // site's business, so the check is not asked at all and its ceiling is 0. A
-      // key but no answer is transitory, so the 5 points leave both sides and are
-      // reported as unevaluated rather than scored as a miss: telling a brand with
-      // a Knowledge Panel to strengthen its entity signals because the API 503'd is
-      // exactly the failure to avoid.
-      kgApplicable: kgEnabled && inKg !== null ? 5 : 0,
-      kgEarned: inKg === true ? 5 : 0,
-      kgUnevaluated: kgEnabled && inKg === null ? 5 : 0,
+    recommendations,
+    knowledgeGraph,
+  } = scoreGeo({
+    page: doc,
+    html,
+    httpStatus,
+    responseHeaders,
+    robotsRead,
+    sitemapRead,
+    llmsTxtExists,
+    knowledgeGraph: {
+      lookup: kgLookup,
+      keyConfigured: Boolean(readOptionalConfig("GOOGLE_KG_API_KEY")),
     },
-  );
-
-  const recommendations = buildRecommendations(categories);
+  });
 
   // Google's three technical requirements, evaluated once and reported first. They
   // are prerequisites, not improvements: the GEO score still runs, because a 500
@@ -336,15 +308,16 @@ export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_geo_score", do
   // Said out loud because it changes how the findings below should be read.
   lines.push(`Content Age: ${contentAge.tier} — ${contentAge.evidence}`);
 
-  if (kgEnabled) {
+  // `null` means no key configured, so there is no check to report. The points
+  // come from the check rather than from a literal: `+5 pts` here was the fourth
+  // place the number 5 was written.
+  if (knowledgeGraph) {
     lines.push(
       `Knowledge Graph: ${
-        inKg === null
-          ? `? not run — ${notScored(
-              kgLookup.reason ?? "the Knowledge Graph API did not answer on this run",
-            )} (0 pts, excluded)`
-          : inKg
-            ? `✓ "${brandName}" found (+5 pts)`
+        knowledgeGraph.status === "not-evaluated"
+          ? `? not run — ${knowledgeGraph.detail} (0 pts, excluded)`
+          : knowledgeGraph.passed
+            ? `✓ "${brandName}" found (+${KNOWLEDGE_GRAPH_POINTS} pts)`
             : `✗ "${brandName}" not found (0 pts)`
       }`,
     );

@@ -11,9 +11,9 @@ import {
   scoreFreshness,
   scoreAiCrawlerAccess,
   scoreTechnical,
-  applyListicleCheck,
   buildRecommendations,
   computeGeoScore,
+  knowledgeGraphCheck,
   type GeoCategory,
 } from "@/lib/analyzers/geo-analyzer";
 import { getSchemaTypes } from "@/lib/analyzers/json-ld-graph";
@@ -217,8 +217,12 @@ describe("Spanish content signals", () => {
   });
 
   it("listicle check recognizes a Spanish numbered heading", () => {
-    const cat: GeoCategory = { key: "technical" as const, name: "CONTENT STRUCTURE", score: 0, maxScore: 15, checks: [] };
-    applyListicleCheck(cat, `<html><body><h2>10 mejores herramientas de SEO</h2></body></html>`, "article");
+    // The check is part of CONTENT STRUCTURE rather than bolted on afterwards by
+    // an exported mutator, so this reads it where it lives.
+    const cat = scoreContentStructure(
+      `<html><body><h2>10 mejores herramientas de SEO</h2></body></html>`,
+      "article",
+    );
     expect(findCheck(cat, "Listicle")?.passed).toBe(true);
   });
 });
@@ -285,7 +289,9 @@ describe("computeGeoScore", () => {
         checks: [{ passed: true, label: "org", points: 45 }],
       },
     ];
-    const r = computeGeoScore(categories, { kgApplicable: 5, kgEarned: 5 });
+    const r = computeGeoScore(categories, {
+      knowledgeGraph: knowledgeGraphCheck({ found: true }, true),
+    });
     expect(r.earned).toBe(50);
     expect(r.applicableMax).toBe(55);
     expect(r.score).toBe(91); // round(50/55*100)
@@ -421,7 +427,7 @@ describe("more page-type-blind checks found reviewing the whole breakdown", () =
     const noQaHtml = "<html><body><h2>Our services</h2><p>Prose.</p></body></html>";
 
     it("is gone from Content Structure, which scored the identical DOM test", () => {
-      expect(scoreContentStructure(noQaHtml).checks
+      expect(scoreContentStructure(noQaHtml, "article").checks
         .some((c) => /Visible Q&A/i.test(c.label))).toBe(false);
     });
 
@@ -466,7 +472,7 @@ describe("more page-type-blind checks found reviewing the whole breakdown", () =
     });
 
     it("is gone from CONTENT STRUCTURE, which used to score it by density", () => {
-      expect(scoreContentStructure(bare).checks
+      expect(scoreContentStructure(bare, "article").checks
         .some((c) => /Statistic/i.test(c.label))).toBe(false);
     });
   });
@@ -486,10 +492,9 @@ describe("more page-type-blind checks found reviewing the whole breakdown", () =
     });
 
     it("marks listicle formatting as not applicable", () => {
-      // Listicle lives in CONTENT STRUCTURE, appended by applyListicleCheck.
-      const cat: GeoCategory = { key: "technical" as const, name: "T", score: 0, maxScore: 0, checks: [] };
-      applyListicleCheck(cat, bare, "homepage");
-      expect(find(cat, "Listicle formatting").status).toBe("not-applicable");
+      // Listicle lives in CONTENT STRUCTURE.
+      expect(find(scoreContentStructure(bare, "homepage"), "Listicle formatting").status)
+        .toBe("not-applicable");
     });
 
     it("still expects all of them on an article", () => {
@@ -498,9 +503,8 @@ describe("more page-type-blind checks found reviewing the whole breakdown", () =
       expect(find(cs, "Blockquote elements present").status).toBeUndefined();
       expect(find(cs, "Reference links").status).toBeUndefined();
       expect(find(qo, "TL;DR / summary").status).toBeUndefined();
-      const cat: GeoCategory = { key: "technical" as const, name: "T", score: 0, maxScore: 0, checks: [] };
-      applyListicleCheck(cat, bare, "article");
-      expect(find(cat, "Listicle formatting").status).toBeUndefined();
+      expect(find(scoreContentStructure(bare, "article"), "Listicle formatting").status)
+        .toBeUndefined();
     });
   });
 });
@@ -549,12 +553,10 @@ describe("a category derives its own arithmetic", () => {
   // Getting one wrong silently changed a page's score.
   const ALL = (pageType: PageKind) => {
     const html = "<html><body><h1>x</h1></body></html>";
-    const cs = scoreContentStructure(html);
-    applyListicleCheck(cs, html, pageType);
     return [
       scoreStructuredData([], new Set<string>(), pageType),
       scoreFreshness([], sitemapFound(""), pageType),
-      cs,
+      scoreContentStructure(html, pageType),
       scoreAiCrawlerAccess(robotsFound(""), html, false),
       scoreAuthorEeat(html, [], pageType),
       scoreTechnical(html, 200),
@@ -603,13 +605,19 @@ describe("a category derives its own arithmetic", () => {
     }
   });
 
-  it("rebuilds the totals when applyListicleCheck appends a check", () => {
+  it("derives the totals from every check the category holds, listicle included", () => {
     const html = "<html><body><h2>10 best tools</h2><ol><li>a</li><li>b</li><li>c</li></ol></body></html>";
-    const before = scoreContentStructure(html);
-    const beforeMax = before.maxScore;
-    applyListicleCheck(before, html, "article");
-    expect(before.maxScore).toBeGreaterThan(beforeMax);
-    expect(before.maxScore).toBe(before.checks.reduce((s, c) => s + c.points, 0));
+
+    const article = scoreContentStructure(html, "article");
+    const homepage = scoreContentStructure(html, "homepage");
+
+    // This used to assert that a mutator rebuilt the totals it had just
+    // invalidated. One function builds the category, so what is left to pin is
+    // the property that mattered: the numbers come from the checks.
+    expect(article.maxScore).toBe(article.checks.reduce((s, c) => s + c.points, 0));
+    expect(findCheck(article, "Listicle")).toBeDefined();
+    // A homepage owes no listicle, so those points leave the maximum entirely.
+    expect(homepage.maxScore).toBeLessThan(article.maxScore);
   });
 });
 
@@ -688,12 +696,10 @@ describe("each signal is counted once", () => {
   // question headings did the same. 34 of 165 points came from four signals.
   const html = "<html><body><h1>x</h1></body></html>";
   const every = (pageType: PageKind) => {
-    const cs = scoreContentStructure(html);
-    applyListicleCheck(cs, html, pageType);
     return [
       scoreStructuredData([], new Set<string>(), pageType),
       scoreFreshness([], sitemapFound(""), pageType),
-      cs,
+      scoreContentStructure(html, pageType),
       scoreAiCrawlerAccess(robotsFound(""), html, false),
       scoreAuthorEeat(html, [], pageType),
       scoreTechnical(html, 200),

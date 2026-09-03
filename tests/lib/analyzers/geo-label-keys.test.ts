@@ -13,7 +13,6 @@ import {
   scoreCitationSignals,
   scoreFreshnessSignals,
   scoreQueryOptimization,
-  applyListicleCheck,
 } from "@/lib/analyzers/geo-analyzer";
 import { LABEL } from "@/lib/analyzers/geo-check-labels";
 import type { PageKind } from "@/lib/analyzers/page-identity";
@@ -71,16 +70,10 @@ function everyLabel(): Set<string> {
   const robots = { outcome: "absent" as const, status: 404 };
 
   for (const kind of PAGE_KINDS) {
-    // `contentStructure` gains a check after the fact: `geo-tools` calls
-    // `applyListicleCheck` on it. A label added by a mutator is still a label a
-    // reader sees, so the sweep has to reproduce the call.
-    const contentStructure = scoreContentStructure("<html></html>");
-    applyListicleCheck(contentStructure, "<html></html>", kind);
-
     const categories = [
       scoreStructuredData([], new Set<string>(), kind),
       scoreFreshness([], sitemap, kind, "https://example.com/"),
-      contentStructure,
+      scoreContentStructure("<html></html>", kind),
       scoreAiCrawlerAccess(robots, "<html></html>", false),
       scoreAuthorEeat("<html></html>", [], kind),
       scoreTechnical("<html></html>", 200),

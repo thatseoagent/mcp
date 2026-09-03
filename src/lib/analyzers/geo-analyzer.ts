@@ -1,8 +1,18 @@
 /**
- * GEO (Generative Engine Optimization) Analyzer — pure scoring functions extracted from geo-tools.ts.
+ * GEO (Generative Engine Optimization) Analyzer — the whole GEO reading of a page.
  *
  * All functions here are pure (no I/O). They accept already-fetched data and
  * return deterministic results, making them straightforward to unit-test.
+ *
+ * {@link scoreGeo} is the entry point, and it is the only one a caller needs.
+ * The run used to be assembled in the Tool handler out of twelve exported steps
+ * with an unexpressed ordering constraint among them; which categories exist, in
+ * what order, and where the Knowledge Graph points sit are this module's
+ * decisions now, the way `scoreEeat` already had them.
+ *
+ * The `score*` functions stay exported as an **internal seam**: this file's own
+ * tests reach through them, and TypeScript has no way to say "exported to the
+ * test file only". No caller sequences them.
  */
 
 import {
@@ -19,20 +29,32 @@ import {
 
 // ── Internal types ──
 
-interface GeoCheck {
+/**
+ * A **Scorable** under this file's field name: `label` where the shared type's
+ * other implementors say `name` or `signal`.
+ *
+ * It used to re-declare `passed`, `points`, `earned` and `status` with forty-odd
+ * lines of prose restating what `scored-checks.ts` already says about each — two
+ * copies of one set of invariants, which can only drift in the direction of
+ * disagreeing. The history that is specific to *this* file is kept below; the
+ * invariants live in one place.
+ *
+ * `passed` is required here, unlike on `Scorable`: every check in this module has
+ * an answer, and `status` is how one says it had none.
+ *
+ * Two pieces of this file's own history that the shared type cannot carry.
+ * `status` was `na?: boolean`, and the rename is not cosmetic: the old field was
+ * credited its full points and relied on `computeGeoScore` to take them back off
+ * both sides, whereas a `status` is out of the fraction from the start (#337).
+ * And `earned` is set by exactly one check, `dateModified`, which used to express
+ * partial credit by writing the earned amount into `points` — so the field held
+ * two meanings in one file, and a page with a stale date rendered a literal "0/0"
+ * while a page scoring 5 of 10 rendered "0/5".
+ */
+interface GeoCheck extends Scorable {
   passed: boolean;
   label: string;
-  /** What the check is WORTH. Never what it earned — see `earned`. */
-  points: number;
   detail?: string;
-  /**
-   * Why this check has no score, when it has none. See `scored-checks.ts`.
-   *
-   * Was `na?: boolean`. The rename is not cosmetic: the old field was credited its
-   * full points and relied on `computeGeoScore` to take them back off both sides,
-   * whereas a `status` is out of the fraction from the start (#337).
-   */
-  status?: ScoreStatus;
   /**
    * Where this check gets its authority, in the sense `check-source.ts` means.
    *
@@ -54,15 +76,6 @@ interface GeoCheck {
    * on every non-N/A check of the category that is entirely ours.
    */
   source?: CheckSource;
-  /**
-   * Points actually earned, when a check awards partial credit.
-   *
-   * Only `dateModified` does. It used to express partial credit by writing the
-   * earned amount into `points`, which meant the field held two different
-   * meanings in one file: the report renders `0/${points}`, so a page with a
-   * stale date showed a literal "0/0" and a page scoring 5 of 10 showed "0/5".
-   */
-  earned?: number;
 }
 
 /**
@@ -150,9 +163,12 @@ import { LABEL } from "./geo-check-labels";
 import { ARTICLE_TYPES, isUndatedPage, isUnauthoredPage, type PageKind } from "./page-identity";
 import { REMOVES_FROM_INDEX } from "./technical-requirements";
 import { findNodeInAll, findNodeWith, flattenJsonLd } from "./json-ld-graph";
-import { tally, notScored, type ScoreStatus } from "./scored-checks";
+import { tally, notScored, type Scorable } from "./scored-checks";
 import { parseRobots } from "./robots-ruleset";
 import { answered, textOrEmpty, type WellKnownRead } from "../well-known";
+import { getSchemaTypes } from "./json-ld-graph";
+import type { ParsedPage } from "./parsed-page";
+import type { KnowledgeGraphMatch } from "../knowledge-graph";
 
 
 
@@ -209,19 +225,24 @@ export interface GeoScoreResult {
  */
 export function computeGeoScore(
   categories: GeoCategory[],
-  opts: { kgApplicable?: number; kgEarned?: number; kgUnevaluated?: number } = {},
+  opts: { knowledgeGraph?: Scorable | null } = {},
 ): GeoScoreResult {
-  const kgApplicable = opts.kgApplicable ?? 0;
-  const kgEarned = opts.kgEarned ?? 0;
+  // One `Scorable`, not three hand-maintained figures. The caller used to write
+  // `kgApplicable: … ? 5 : 0`, `kgEarned: … ? 5 : 0` and `kgUnevaluated: … ? 5 : 0`
+  // — the number 5 three times, and a fourth in the render — which is exactly the
+  // pattern `scored-checks.ts` was written to remove: "`ai-visibility` wrote every
+  // value twice … with nothing keeping them in step". `tally` decides now, so the
+  // three cases are one branch in `knowledgeGraphCheck` and the points are one
+  // constant.
+  const kg = tally(opts.knowledgeGraph ? [opts.knowledgeGraph] : []);
+
+  let earned = kg.score;
+  let applicableMax = kg.max;
+  let naPoints = kg.notApplicable;
   // Counted, never added to either side of the fraction — that is what makes it
   // unevaluated. It exists so the report can say the run is not comparable to the
   // last one, which is the one thing a transitory absence owes the reader.
-  const kgUnevaluated = opts.kgUnevaluated ?? 0;
-
-  let earned = kgEarned;
-  let applicableMax = kgApplicable;
-  let naPoints = 0;
-  let unevaluatedPoints = kgUnevaluated;
+  let unevaluatedPoints = kg.notEvaluated;
   for (const cat of categories) {
     earned += cat.score;
     applicableMax += cat.maxScore;
@@ -521,8 +542,15 @@ export function scoreFreshness(
  * Took `schemas` and `pageType` until the word-count check was removed. Both
  * existed only to decide whether to score a homepage against a 500-word floor,
  * and that floor is gone: Google states length alone does not affect ranking.
+ *
+ * `pageType` came back for the listicle check, which belongs to this category and
+ * used to be bolted on afterwards by an exported `applyListicleCheck(category,
+ * html, pageType)` — a second call with an unexpressed ordering constraint, that
+ * mutated the category and then rebuilt its totals with `Object.assign` because
+ * appending a check invalidates them. One function builds the whole category now,
+ * so there is nothing to sequence and nothing to mutate.
  */
-export function scoreContentStructure(html: string): GeoCategory {
+export function scoreContentStructure(html: string, pageType: PageKind): GeoCategory {
   const checks: GeoCheck[] = [];
 
   const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? html;
@@ -570,6 +598,15 @@ export function scoreContentStructure(html: string): GeoCategory {
     points: 3,
     detail: `List items: ${listItems}, paragraphs: ${paragraphCount}`,
   });
+
+  // Numbered headings and comparison tables are how a listicle is built. A
+  // homepage is not one, and telling its owner to restructure it as a list is
+  // advice that would make the page worse.
+  checks.push(
+    pageType === "homepage"
+      ? naCheck(LABEL.listicleFormatting, 5, pageType)
+      : scoreListicleFormatting(html),
+  );
 
   return category("contentStructure", "CONTENT STRUCTURE", checks);
 }
@@ -1191,19 +1228,130 @@ export function buildRecommendations(categories: GeoCategory[]): string[] {
   return recs.slice(0, 8);
 }
 
+
+
+/** What a Knowledge Graph entity is worth. Written once, and read by the render. */
+export const KNOWLEDGE_GRAPH_POINTS = 5;
+
 /**
- * Apply listicle formatting check to a contentStructure category.
- * Used by the handler to add this check into the content structure scoring.
+ * The Knowledge Graph lookup as a scored check.
+ *
+ * ── Three cases, and why `null` is one of them ──
+ *
+ * - **No key configured.** `null`: the check does not exist. This is our
+ *   deployment and not the site's business, so its ceiling is 0 and it is not
+ *   "not applicable" either — a `not-applicable` would put the points into the
+ *   report's "these do not apply to this page" sentence, which would be blaming
+ *   the page for a variable the Operator did not set.
+ * - **A key, and no answer.** `not-evaluated`: the points leave both sides and
+ *   the run is reported as incomparable. Telling a brand with a Knowledge Panel
+ *   to strengthen its entity signals because the API 503'd is exactly the failure
+ *   to avoid.
+ * - **An answer.** Scored.
+ *
+ * The three used to be three expressions at the call site, each writing the
+ * number 5, with a fourth `+5 pts` in the render. One `Scorable` now, and `tally`
+ * does the arithmetic — which is what `scored-checks.ts` exists for.
  */
-export function applyListicleCheck(contentStructure: GeoCategory, html: string, pageType: PageKind): void {
-  // Numbered headings and comparison tables are how a listicle is built. A
-  // homepage is not one, and telling its owner to restructure it as a list is
-  // advice that would make the page worse.
-  const listicleCheck = pageType === "homepage"
-    ? naCheck(LABEL.listicleFormatting, 5, pageType)
-    : scoreListicleFormatting(html);
-  contentStructure.checks.push(listicleCheck);
-  // score and maxScore are derived from the checks, so appending one means
-  // rebuilding the category rather than adjusting two running totals.
-  Object.assign(contentStructure, category(contentStructure.key, contentStructure.name, contentStructure.checks));
+export function knowledgeGraphCheck(
+  lookup: KnowledgeGraphMatch,
+  keyConfigured: boolean,
+): Scorable | null {
+  if (!keyConfigured) return null;
+  if (lookup.found === null) {
+    return {
+      points: KNOWLEDGE_GRAPH_POINTS,
+      passed: false,
+      status: "not-evaluated",
+      detail: notScored(
+        lookup.reason ?? "the Knowledge Graph API did not answer on this run",
+      ),
+    };
+  }
+  return { points: KNOWLEDGE_GRAPH_POINTS, passed: lookup.found };
+}
+
+/** Everything the GEO reading needs, all of it already in hand. */
+export interface GeoInput {
+  /** The document, read once. Carries the URL, the schemas and the Page Identity. */
+  page: ParsedPage;
+  /** The raw markup, for the scorers that still match against it. */
+  html: string;
+  httpStatus: number;
+  responseHeaders: Record<string, string>;
+  /** What the site's robots.txt said, or why we do not know. */
+  robotsRead: WellKnownRead;
+  /** The sitemap that actually contains this page, resolved by the caller. */
+  sitemapRead: WellKnownRead;
+  /** Whether the site publishes an llms.txt. Worth 0 points, and says so. */
+  llmsTxtExists: boolean;
+  /** The brand's Knowledge Graph lookup, and whether a key was configured. */
+  knowledgeGraph: { lookup: KnowledgeGraphMatch; keyConfigured: boolean };
+}
+
+/** The GEO reading of a page: every category, the score, and what to do about it. */
+export interface GeoReading extends GeoScoreResult {
+  /** The ten categories, in the order the report prints them. */
+  categories: GeoCategory[];
+  recommendations: string[];
+  /** `null` when no key was configured, so the render can leave the line out. */
+  knowledgeGraph: Scorable | null;
+}
+
+/**
+ * Score a page that has already been read.
+ *
+ * ── Why this exists ──
+ *
+ * The GEO run was assembled in the Tool handler: ten `score*` calls, then
+ * `applyListicleCheck` mutating a category built two lines earlier, then a
+ * ten-element array, then three hand-written expressions for the Knowledge Graph
+ * points, then `computeGeoScore`. Twelve exported steps a caller had to sequence
+ * correctly, with the one ordering constraint among them expressed nowhere.
+ *
+ * `scoreEeat({ page, trustPages })` and the three `audit*` functions in the agent
+ * tier already had this shape. This is the same move: which categories exist, in
+ * which order, what each needs, and where the Knowledge Graph points sit are all
+ * decisions this module owns. The handler is left with the fetches and the
+ * printing.
+ *
+ * Pure, like everything else here. Every network answer arrives as data.
+ *
+ * The `score*` functions stay exported. They are an **internal seam**: this
+ * module's own tests reach through them — `geo-analyzer.test.ts` is 1083 lines of
+ * exactly that, and `no-answer-says-why.test.ts` walks two of them to check an
+ * invariant across every check they build — and TypeScript has no way to say
+ * "exported to the test file only". What changed is that no *caller* sequences
+ * them any more.
+ */
+export function scoreGeo(input: GeoInput): GeoReading {
+  const { page, html, httpStatus, responseHeaders, robotsRead, sitemapRead } = input;
+  const { schemas } = page;
+  const pageType = page.identity.kind;
+  const schemaTypes = getSchemaTypes(schemas);
+
+  const categories: GeoCategory[] = [
+    scoreStructuredData(schemas, schemaTypes, pageType),
+    scoreFreshness(schemas, sitemapRead, pageType, page.url),
+    scoreContentStructure(html, pageType),
+    scoreAiCrawlerAccess(robotsRead, html, input.llmsTxtExists),
+    scoreAuthorEeat(html, schemas, pageType),
+    scoreTechnical(html, httpStatus),
+    scoreContentCitability(html, pageType),
+    scoreCitationSignals(html, pageType),
+    scoreFreshnessSignals(html, responseHeaders, pageType),
+    scoreQueryOptimization(html, schemas, pageType),
+  ];
+
+  const knowledgeGraph = knowledgeGraphCheck(
+    input.knowledgeGraph.lookup,
+    input.knowledgeGraph.keyConfigured,
+  );
+
+  return {
+    ...computeGeoScore(categories, { knowledgeGraph }),
+    categories,
+    recommendations: buildRecommendations(categories),
+    knowledgeGraph,
+  };
 }

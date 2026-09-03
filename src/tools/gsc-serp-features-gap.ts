@@ -1,9 +1,8 @@
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
 import { toolText } from "../lib/tool-result";
-import { fetchRows, gscWindowSchema, whatTheseRowsAre } from "../lib/google/gsc-tool-shape";
+import { fetchRows, gscWindowSchema, readAgain } from "../lib/google/gsc-tool-shape";
 import { segmentShares, totalsOf } from "../lib/google/gsc-analysis";
-import { withPropertyFallback } from "../lib/google/property";
 import type { GoogleReader } from "../lib/google/reader";
 
 export const schema = { ...gscWindowSchema };
@@ -54,17 +53,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
   // The property's own totals, for comparison. Asked separately rather than
   // summed from the rows above, because appearances overlap — one impression can
   // count under several — so adding them gives a number larger than the site's.
-  const { result: totalRows } = await withPropertyFallback(
-    google.searchConsole,
-    current.property,
-    (resolved) =>
-      google.searchConsole.searchAnalytics({
-        siteUrl: resolved,
-        startDate: current.startDate,
-        endDate: current.endDate,
-        rowLimit: 1,
-      }),
-  );
+  const totalRows = await readAgain(google.searchConsole, current, { rowLimit: 1 });
   const whole = totalsOf(totalRows);
 
   const shares = segmentShares(current.rows);
@@ -117,7 +106,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
     }
   }
 
-  lines.push(...whatTheseRowsAre(current.rows.length, 100));
+  lines.push(...current.footer);
   return toolText(lines.join("\n"));
 }
 

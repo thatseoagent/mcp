@@ -1,7 +1,7 @@
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
 import { toolText } from "../lib/tool-result";
-import { fetchRows, gscWindowSchema, whatTheseRowsAre } from "../lib/google/gsc-tool-shape";
+import { fetchRows, gscWindowSchema } from "../lib/google/gsc-tool-shape";
 import { segmentShares } from "../lib/google/gsc-analysis";
 import type { GoogleReader } from "../lib/google/reader";
 
@@ -32,7 +32,7 @@ const MAX_SHOWN = 20;
 const MIN_SHARE = 0.01;
 
 export async function handler(args: InferSchema<typeof schema>, google: GoogleReader) {
-  const { rows, header } = await fetchRows(google.searchConsole, args, {
+  const { rows, header, footer } = await fetchRows(google.searchConsole, args, {
     dimensions: ["country"],
     rowLimit: 300,
     title: "PERFORMANCE BY COUNTRY",
@@ -85,7 +85,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
     lines.push("about the page itself. seo_hreflang_validator covers the language half.");
   }
 
-  lines.push(...whatTheseRowsAre(rows.length, 300));
+  lines.push(...footer);
   return toolText(lines.join("\n"));
 }
 

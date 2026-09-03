@@ -4,11 +4,9 @@ import { toolText } from "../lib/tool-result";
 import {
   fetchRows,
   gscWindowSchema,
-  precedingWindow,
-  whatTheseRowsAre,
+  readPrecedingWindow,
 } from "../lib/google/gsc-tool-shape";
 import { biggestMovers, compareWindows } from "../lib/google/gsc-analysis";
-import { withPropertyFallback } from "../lib/google/property";
 import type { GoogleReader } from "../lib/google/reader";
 
 export const schema = { ...gscWindowSchema };
@@ -45,30 +43,20 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
     title: "TRENDS",
   });
 
-  const before = precedingWindow(current.startDate, current.endDate);
-  const { result: previousRows } = await withPropertyFallback(
-    google.searchConsole,
-    current.property,
-    (resolved) =>
-      google.searchConsole.searchAnalytics({
-        siteUrl: resolved,
-        startDate: before.startDate,
-        endDate: before.endDate,
-        dimensions: ["query"],
-        rowLimit: 5_000,
-      }),
-  );
+  const previous = await readPrecedingWindow(google.searchConsole, current, {
+    dimensions: ["query"],
+  });
 
-  const movements = compareWindows(current.rows, previousRows);
+  const movements = compareWindows(current.rows, previous.rows);
   const movers = biggestMovers(movements);
 
   const lines = [...current.header];
-  lines.push(`Compared against: ${before.startDate} to ${before.endDate} (${previousRows.length} rows)`);
+  lines.push(previous.line);
   lines.push("");
 
   if (movers.length === 0) {
     lines.push("No query in either window has enough clicks for a change to mean anything.");
-    lines.push(...whatTheseRowsAre(current.rows.length));
+    lines.push(...current.footer);
     return toolText(lines.join("\n"));
   }
 
@@ -108,7 +96,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
   lines.push("Search Console withholds queries it considers personal and does not report every");
   lines.push("impression. Treat 'new' and 'gone' as changes in what was reported.");
 
-  lines.push(...whatTheseRowsAre(current.rows.length));
+  lines.push(...current.footer);
   return toolText(lines.join("\n"));
 }
 

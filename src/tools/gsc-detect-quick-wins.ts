@@ -2,7 +2,7 @@ import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
 import { toolText } from "../lib/tool-result";
-import { fetchRows, gscWindowSchema, whatTheseRowsAre } from "../lib/google/gsc-tool-shape";
+import { fetchRows, gscWindowSchema } from "../lib/google/gsc-tool-shape";
 import { DEFAULT_QUICK_WINS, quickWins } from "../lib/google/gsc-analysis";
 import type { GoogleReader } from "../lib/google/reader";
 
@@ -42,7 +42,7 @@ const FAILURE_CONTEXT = "find quick wins for this site";
 const MAX_SHOWN = 25;
 
 export async function handler(args: InferSchema<typeof schema>, google: GoogleReader) {
-  const { rows, header } = await fetchRows(google.searchConsole, args, {
+  const { rows, header, footer } = await fetchRows(google.searchConsole, args, {
     dimensions: ["query"],
     title: "QUICK WINS",
   });
@@ -74,7 +74,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
     lines.push("earning their clicks, or that the window is too short for anything to clear the");
     lines.push("impression floor. Lower `minImpressions`, or widen the window, before reading");
     lines.push("anything into it.");
-    lines.push(...whatTheseRowsAre(rows.length));
+    lines.push(...footer);
     return toolText(lines.join("\n"));
   }
 
@@ -101,7 +101,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
     lines.push(`  ... and ${found.length - MAX_SHOWN} more`);
   }
 
-  lines.push(...whatTheseRowsAre(rows.length));
+  lines.push(...footer);
   return toolText(lines.join("\n"));
 }
 

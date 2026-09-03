@@ -5,11 +5,9 @@ import { toolText } from "../lib/tool-result";
 import {
   fetchRows,
   gscWindowSchema,
-  precedingWindow,
-  whatTheseRowsAre,
+  readPrecedingWindow,
 } from "../lib/google/gsc-tool-shape";
 import { compareWindows, lost } from "../lib/google/gsc-analysis";
-import { withPropertyFallback } from "../lib/google/property";
 import type { GoogleReader } from "../lib/google/reader";
 
 export const schema = {
@@ -48,30 +46,20 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
     title: "QUERIES NO LONGER REPORTED",
   });
 
-  const before = precedingWindow(current.startDate, current.endDate);
-  const { result: previousRows } = await withPropertyFallback(
-    google.searchConsole,
-    current.property,
-    (resolved) =>
-      google.searchConsole.searchAnalytics({
-        siteUrl: resolved,
-        startDate: before.startDate,
-        endDate: before.endDate,
-        dimensions: ["query"],
-        rowLimit: 5_000,
-      }),
-  );
+  const previous = await readPrecedingWindow(google.searchConsole, current, {
+    dimensions: ["query"],
+  });
 
-  const gone = lost(compareWindows(current.rows, previousRows), args.minImpressions ?? 20);
+  const gone = lost(compareWindows(current.rows, previous.rows), args.minImpressions ?? 20);
 
   const lines = [...current.header];
-  lines.push(`Compared against: ${before.startDate} to ${before.endDate} (${previousRows.length} rows)`);
+  lines.push(previous.line);
   lines.push("");
 
   if (gone.length === 0) {
     lines.push("Every query with meaningful traffic in the previous window is still being");
     lines.push("reported in this one.");
-    lines.push(...whatTheseRowsAre(current.rows.length));
+    lines.push(...current.footer);
     return toolText(lines.join("\n"));
   }
 
@@ -98,7 +86,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
   }
   if (gone.length > MAX_SHOWN) lines.push(`  ... and ${gone.length - MAX_SHOWN} more`);
 
-  lines.push(...whatTheseRowsAre(current.rows.length));
+  lines.push(...current.footer);
   return toolText(lines.join("\n"));
 }
 

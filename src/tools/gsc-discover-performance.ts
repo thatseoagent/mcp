@@ -1,7 +1,7 @@
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
 import { toolText } from "../lib/tool-result";
-import { fetchRows, gscWindowSchema, whatTheseRowsAre } from "../lib/google/gsc-tool-shape";
+import { fetchRows, gscWindowSchema } from "../lib/google/gsc-tool-shape";
 import { keyOf, totalsOf } from "../lib/google/gsc-analysis";
 import type { GoogleReader } from "../lib/google/reader";
 
@@ -29,7 +29,7 @@ const FAILURE_CONTEXT = "read this site's Discover performance";
 const MAX_SHOWN = 25;
 
 export async function handler(args: InferSchema<typeof schema>, google: GoogleReader) {
-  const { rows, header } = await fetchRows(google.searchConsole, args, {
+  const { rows, header, footer } = await fetchRows(google.searchConsole, args, {
     dimensions: ["page"],
     // The one Tool here that is not about `web`. Discover is a separate surface
     // with its own rows, and asking for it is the whole point.
@@ -76,7 +76,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
   lines.push("anything done to the site. Comparing Discover week to week is mostly noise;");
   lines.push("comparing which *pages* get picked up is not.");
 
-  lines.push(...whatTheseRowsAre(rows.length, 1_000));
+  lines.push(...footer);
   return toolText(lines.join("\n"));
 }
 

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
 import { toolText } from "../lib/tool-result";
-import { fetchRows, gscWindowSchema, whatTheseRowsAre } from "../lib/google/gsc-tool-shape";
+import { fetchRows, gscWindowSchema } from "../lib/google/gsc-tool-shape";
 import { keyOf, totalsOf } from "../lib/google/gsc-analysis";
 import type { GoogleReader, SearchAnalyticsRow } from "../lib/google/reader";
 
@@ -37,7 +37,7 @@ const MAX_PAGES = 20;
 const MAX_QUERIES_PER_PAGE = 10;
 
 export async function handler(args: InferSchema<typeof schema>, google: GoogleReader) {
-  const { rows, header } = await fetchRows(google.searchConsole, args, {
+  const { rows, header, footer } = await fetchRows(google.searchConsole, args, {
     dimensions: ["page", "query"],
     rowLimit: 10_000,
     title: "PAGES AND THE QUERIES THEY RANK FOR",
@@ -63,7 +63,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
           `Console records it — a trailing slash or a query string makes it a different page.`
         : "No page and query rows in this window.",
     );
-    lines.push(...whatTheseRowsAre(rows.length, 10_000));
+    lines.push(...footer);
     return toolText(lines.join("\n"));
   }
 
@@ -103,7 +103,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
   lines.push("say more about what it is actually being found for, or those queries belong on a");
   lines.push("different page that does not exist yet.");
 
-  lines.push(...whatTheseRowsAre(rows.length, 10_000));
+  lines.push(...footer);
   return toolText(lines.join("\n"));
 }
 

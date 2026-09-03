@@ -1,7 +1,7 @@
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
 import { toolText } from "../lib/tool-result";
-import { fetchRows, gscWindowSchema, whatTheseRowsAre } from "../lib/google/gsc-tool-shape";
+import { fetchRows, gscWindowSchema } from "../lib/google/gsc-tool-shape";
 import { anomalies, MIN_DAYS_FOR_ANOMALY, totalsOf } from "../lib/google/gsc-analysis";
 import type { GoogleReader } from "../lib/google/reader";
 
@@ -27,7 +27,7 @@ export const metadata: ToolMetadata = {
 const FAILURE_CONTEXT = "look for unusual days in this site's search data";
 
 export async function handler(args: InferSchema<typeof schema>, google: GoogleReader) {
-  const { rows, header } = await fetchRows(google.searchConsole, args, {
+  const { rows, header, footer } = await fetchRows(google.searchConsole, args, {
     dimensions: ["date"],
     rowLimit: 400,
     title: "UNUSUAL DAYS",
@@ -59,7 +59,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
     lines.push("");
     lines.push("A flat window can mean a stable site or a window too short to contain the event");
     lines.push("you are looking for. It is not evidence that nothing happened.");
-    lines.push(...whatTheseRowsAre(rows.length, 400));
+    lines.push(...footer);
     return toolText(lines.join("\n"));
   }
 
@@ -78,7 +78,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
   lines.push("you ran. The most common 'anomaly' in any window is a Sunday. Check the dates");
   lines.push("against what you know happened before treating one as a Google event.");
 
-  lines.push(...whatTheseRowsAre(rows.length, 400));
+  lines.push(...footer);
   return toolText(lines.join("\n"));
 }
 

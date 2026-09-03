@@ -2,7 +2,7 @@ import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
 import { toolText } from "../lib/tool-result";
-import { fetchRows, gscWindowSchema, whatTheseRowsAre } from "../lib/google/gsc-tool-shape";
+import { fetchRows, gscWindowSchema } from "../lib/google/gsc-tool-shape";
 import { cannibalization } from "../lib/google/gsc-analysis";
 import type { GoogleReader } from "../lib/google/reader";
 
@@ -36,7 +36,7 @@ const FAILURE_CONTEXT = "look for competing pages on this site";
 const MAX_SHOWN = 20;
 
 export async function handler(args: InferSchema<typeof schema>, google: GoogleReader) {
-  const { rows, header } = await fetchRows(google.searchConsole, args, {
+  const { rows, header, footer } = await fetchRows(google.searchConsole, args, {
     // Both dimensions, which is what makes the pairing possible at all.
     dimensions: ["query", "page"],
     rowLimit: 10_000,
@@ -49,7 +49,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
   lines.push("");
   if (found.length === 0) {
     lines.push("No query in this window has two pages clearing the impression floor.");
-    lines.push(...whatTheseRowsAre(rows.length, 10_000));
+    lines.push(...footer);
     return toolText(lines.join("\n"));
   }
 
@@ -77,7 +77,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
     lines.push(`... and ${found.length - MAX_SHOWN} more queries`);
   }
 
-  lines.push(...whatTheseRowsAre(rows.length, 10_000));
+  lines.push(...footer);
   return toolText(lines.join("\n"));
 }
 

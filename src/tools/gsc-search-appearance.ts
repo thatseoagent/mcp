@@ -1,7 +1,7 @@
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
 import { toolText } from "../lib/tool-result";
-import { fetchRows, gscWindowSchema, whatTheseRowsAre } from "../lib/google/gsc-tool-shape";
+import { fetchRows, gscWindowSchema } from "../lib/google/gsc-tool-shape";
 import { segmentShares } from "../lib/google/gsc-analysis";
 import type { GoogleReader } from "../lib/google/reader";
 
@@ -27,7 +27,7 @@ export const metadata: ToolMetadata = {
 const FAILURE_CONTEXT = "read this site's search appearances";
 
 export async function handler(args: InferSchema<typeof schema>, google: GoogleReader) {
-  const { rows, header } = await fetchRows(google.searchConsole, args, {
+  const { rows, header, footer } = await fetchRows(google.searchConsole, args, {
     dimensions: ["searchAppearance"],
     rowLimit: 100,
     title: "SEARCH APPEARANCES",
@@ -67,7 +67,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
   lines.push("earns no more clicks than a plain one is structured data that is not paying for");
   lines.push("itself.");
 
-  lines.push(...whatTheseRowsAre(rows.length, 100));
+  lines.push(...footer);
   return toolText(lines.join("\n"));
 }
 

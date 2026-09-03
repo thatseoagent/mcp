@@ -282,8 +282,27 @@ function checkMcpDiscoverable(card: Probe, wellKnown: Probe, llms: Probe | null,
   if (llms?.ok && llms.status === 200 && advertisesMcp(llms)) routes.push("a reference in /llms.txt");
 
   // Absence here is absence of an MCP server, which is not a defect — the same
-  // rule as every other row in this tier.
+  // rule as every other row in this tier. But it is only absence if we actually
+  // looked: this is the one check in the tier whose verdict is assembled from
+  // three probes rather than taken from one, and it read `!probe.ok` as "not
+  // advertised". A site whose robots.txt disallows `/.well-known/` was told "No
+  // MCP server advertised at /.well-known/mcp/server-card.json" about a path
+  // nobody fetched — a claim about a document no server served, which is the one
+  // thing ADR-0006 says a check on this axis may not make.
   if (routes.length === 0) {
+    const consulted = [card, wellKnown, ...(llms ? [llms] : [])];
+    const unread = consulted.filter((response) => !response.ok);
+    if (unread.length > 0) {
+      const refused = unread.find((response) => !response.ok && response.blockedByRobots);
+      return refused
+        ? disallowed(base, refused.url)
+        : couldNotRun(
+            base,
+            `${unread.length} of the ${consulted.length} paths that could advertise an MCP server were not read — ${unread
+              .map((response) => (response.ok ? "" : `${new URL(response.url).pathname}: ${response.reason}`))
+              .join("; ")}. Absence of an artifact and absence of an answer are not the same finding`,
+          );
+    }
     return {
       ...base,
       status: "not-applicable",

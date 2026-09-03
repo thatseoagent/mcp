@@ -11,6 +11,7 @@ import { goodUnder, poorAbove } from "../lib/analyzers/vital-thresholds";
 import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
 import { toolText } from "../lib/tool-result";
+import { withheld } from "../lib/render-list";
 
 export const schema = {
   ...refreshable,
@@ -186,7 +187,7 @@ function renderLabData(labData: LabData): string[] {
       if (audit.displayValue) lines.push(`    ${audit.displayValue}`);
     }
     if (labData.failedAudits.length > MAX_AUDITS_SHOWN) {
-      lines.push(`  ... and ${labData.failedAudits.length - MAX_AUDITS_SHOWN} more`);
+      lines.push(...withheld(labData.failedAudits.length, MAX_AUDITS_SHOWN));
     }
   }
 

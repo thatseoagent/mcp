@@ -10,6 +10,7 @@ import {
   isAiReferrer,
 } from "../lib/google/ai-referrers";
 import type { GoogleReader } from "../lib/google/reader";
+import { withheld } from "../lib/render-list";
 
 export const schema = {
   ...ga4PropertySchema,
@@ -232,7 +233,7 @@ export async function handler(
       lines.push(`  ${page} — ${Math.round(sessions)} sessions`);
     }
     if (pages.length > MAX_PAGES) {
-      lines.push(`  ... and ${pages.length - MAX_PAGES} more`);
+      lines.push(...withheld(pages.length, MAX_PAGES));
     }
   }
 

@@ -5,6 +5,7 @@ import { toolText } from "../lib/tool-result";
 import { fetchRows, gscWindowSchema } from "../lib/google/gsc-tool-shape";
 import { cannibalization } from "../lib/google/gsc-analysis";
 import type { GoogleReader } from "../lib/google/reader";
+import { withheld } from "../lib/render-list";
 
 export const schema = {
   ...gscWindowSchema,
@@ -74,7 +75,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
   }
   if (found.length > MAX_SHOWN) {
     lines.push("");
-    lines.push(`... and ${found.length - MAX_SHOWN} more queries`);
+    lines.push(...withheld(found.length, MAX_SHOWN, { noun: "queries", indent: "" }));
   }
 
   lines.push(...footer);

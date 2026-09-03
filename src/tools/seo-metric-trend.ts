@@ -13,6 +13,7 @@ import {
   readMonths,
   type Movement,
 } from "../lib/metric-history";
+import { withheld } from "../lib/render-list";
 
 export const schema = {
   ...refreshable,
@@ -89,7 +90,7 @@ function renderMovement(movement: Movement): string[] {
     lines.push(`  ${point.at.toISOString().slice(0, 10)} — ${value}${grade}`);
   }
   if (points.length > MAX_POINTS) {
-    lines.push(`  ... and ${points.length - MAX_POINTS} earlier readings`);
+    lines.push(...withheld(points.length, MAX_POINTS, { noun: "earlier readings" }));
   }
 
   return lines;

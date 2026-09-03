@@ -9,6 +9,7 @@ import {
 } from "../lib/google/gsc-tool-shape";
 import { compareWindows, lost } from "../lib/google/gsc-analysis";
 import type { GoogleReader } from "../lib/google/reader";
+import { withheld } from "../lib/render-list";
 
 export const schema = {
   ...gscWindowSchema,
@@ -84,7 +85,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
         `${Math.round(movement.before.impressions)} / ${movement.before.position.toFixed(1)}`,
     );
   }
-  if (gone.length > MAX_SHOWN) lines.push(`  ... and ${gone.length - MAX_SHOWN} more`);
+  lines.push(...withheld(gone.length, MAX_SHOWN));
 
   lines.push(...current.footer);
   return toolText(lines.join("\n"));

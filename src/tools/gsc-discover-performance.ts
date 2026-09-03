@@ -4,6 +4,7 @@ import { toolText } from "../lib/tool-result";
 import { fetchRows, gscWindowSchema } from "../lib/google/gsc-tool-shape";
 import { keyOf, totalsOf } from "../lib/google/gsc-analysis";
 import type { GoogleReader } from "../lib/google/reader";
+import { withheld } from "../lib/render-list";
 
 export const schema = { ...gscWindowSchema };
 
@@ -66,7 +67,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
       `  ${keyOf(row)} — ${row.impressions} / ${row.clicks} / ${(row.ctr * 100).toFixed(2)}%`,
     );
   }
-  if (ranked.length > MAX_SHOWN) lines.push(`  ... and ${ranked.length - MAX_SHOWN} more`);
+  lines.push(...withheld(ranked.length, MAX_SHOWN));
 
   lines.push("");
   lines.push("=== READING THESE ===");

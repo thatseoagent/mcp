@@ -4,6 +4,7 @@ import { defineGoogleTool } from "../lib/define-tool";
 import { ga4Property, ga4PropertySchema } from "../lib/google/ga4-tool-shape";
 import { toolText } from "../lib/tool-result";
 import type { GoogleReader } from "../lib/google/reader";
+import { withheld } from "../lib/render-list";
 
 export const schema = {
   ...ga4PropertySchema,
@@ -72,7 +73,7 @@ function renderFields(heading: string, fields: Field[], search: string | undefin
   }
   if (shown.length < chosen.length) {
     lines.push(
-      `  ... and ${chosen.length - shown.length} more. Pass \`search\` to narrow this down.`,
+      ...withheld(chosen.length, shown.length, { hint: "Pass `search` to narrow this down." }),
     );
   }
   return lines;

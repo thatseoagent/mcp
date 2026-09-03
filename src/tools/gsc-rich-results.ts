@@ -7,6 +7,7 @@ import { resolveSiteUrl } from "../lib/google/property";
 import { resolveWindow } from "../lib/google/gsc-dates";
 import { inspectBusiestPages, whatWasSampled } from "../lib/google/inspected-sample";
 import type { GoogleReader } from "../lib/google/reader";
+import { withheld } from "../lib/render-list";
 
 export const schema = {
   ...refreshable,
@@ -32,6 +33,12 @@ export const metadata: ToolMetadata = {
 
 /** Completes the sentence "Could not …" for every failure this Tool can return. */
 const FAILURE_CONTEXT = "check the rich results Google detected on this site";
+
+/** How many rich-result types to list as absent. */
+const MAX_WITHOUT_SHOWN = 15;
+
+/** How many example URLs to print per rich-result type. */
+const EXAMPLE_URLS = 5;
 
 export async function handler(
   { siteUrl, days }: InferSchema<typeof schema>,
@@ -64,7 +71,7 @@ export async function handler(
     for (const [type, urls] of [...byType.entries()].sort((a, b) => b[1].length - a[1].length)) {
       lines.push(`${type} — ${urls.length} page(s)`);
       for (const url of urls.slice(0, 5)) lines.push(`  ${url}`);
-      if (urls.length > 5) lines.push(`  ... and ${urls.length - 5} more`);
+      lines.push(...withheld(urls.length, EXAMPLE_URLS));
     }
   }
 
@@ -95,7 +102,7 @@ export async function handler(
     for (const entry of without.slice(0, 15)) {
       lines.push(`  ${entry.url} — ${entry.impressions} impressions`);
     }
-    if (without.length > 15) lines.push(`  ... and ${without.length - 15} more`);
+    lines.push(...withheld(without.length, MAX_WITHOUT_SHOWN));
   }
 
   lines.push(...whatWasSampled(sample));

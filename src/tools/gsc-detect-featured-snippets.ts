@@ -4,6 +4,7 @@ import { toolText } from "../lib/tool-result";
 import { fetchRows, gscWindowSchema } from "../lib/google/gsc-tool-shape";
 import { keyOf } from "../lib/google/gsc-analysis";
 import type { GoogleReader } from "../lib/google/reader";
+import { withheld } from "../lib/render-list";
 
 export const schema = { ...gscWindowSchema };
 
@@ -25,6 +26,9 @@ export const metadata: ToolMetadata = {
 
 /** Completes the sentence "Could not …" for every failure this Tool can return. */
 const FAILURE_CONTEXT = "look for featured snippets for this site";
+
+/** How many queries to print per list. */
+const MAX_SHOWN = 20;
 
 /**
  * What the inference rests on, and it is genuinely an inference.
@@ -89,7 +93,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
           `${row.clicks} clicks`,
       );
     }
-    if (holding.length > 20) lines.push(`  ... and ${holding.length - 20} more`);
+    lines.push(...withheld(holding.length, MAX_SHOWN));
   }
 
   lines.push("");
@@ -108,7 +112,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
           `${row.impressions} impressions`,
       );
     }
-    if (contenders.length > 20) lines.push(`  ... and ${contenders.length - 20} more`);
+    lines.push(...withheld(contenders.length, MAX_SHOWN));
     lines.push("");
     lines.push("Ranking well and being ignored has other causes than a snippet — an ad block, a");
     lines.push("map, a video carousel, or a query nobody actually wanted an answer to. Look at");

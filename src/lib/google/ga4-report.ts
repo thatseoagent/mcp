@@ -23,6 +23,7 @@
  * `"10"`. The conversion happens here, once.
  */
 import type { Ga4Report } from "./reader";
+import { withheld } from "../render-list";
 
 export interface ReportTable {
   dimensions: string[];
@@ -125,7 +126,10 @@ export function renderReport(table: ReportTable): string[] {
   }
 
   if (table.rawRows.length > MAX_ROWS_SHOWN) {
-    lines.push(`... and ${table.rawRows.length - MAX_ROWS_SHOWN} more of the rows returned`);
+    lines.push(...withheld(table.rawRows.length, MAX_ROWS_SHOWN, {
+      noun: "of the rows returned",
+      indent: "",
+    }));
   }
 
   if (table.totals.length > 0) {

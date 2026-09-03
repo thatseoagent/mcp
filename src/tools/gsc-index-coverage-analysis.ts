@@ -8,6 +8,7 @@ import { resolveWindow } from "../lib/google/gsc-dates";
 import { inspectBusiestPages, whatWasSampled } from "../lib/google/inspected-sample";
 import { canonicalDisagrees } from "../lib/google/inspection-report";
 import type { GoogleReader } from "../lib/google/reader";
+import { withheld } from "../lib/render-list";
 
 export const schema = {
   ...refreshable,
@@ -33,6 +34,9 @@ export const metadata: ToolMetadata = {
 
 /** Completes the sentence "Could not …" for every failure this Tool can return. */
 const FAILURE_CONTEXT = "analyse index coverage for this site";
+
+/** How many URLs to print per coverage state. */
+const MAX_ENTRIES_SHOWN = 10;
 
 export async function handler(
   { siteUrl, days }: InferSchema<typeof schema>,
@@ -72,7 +76,7 @@ export async function handler(
       for (const entry of entries.slice(0, 10)) {
         lines.push(`  ${entry.url} — ${entry.impressions} impressions`);
       }
-      if (entries.length > 10) lines.push(`  ... and ${entries.length - 10} more`);
+      lines.push(...withheld(entries.length, MAX_ENTRIES_SHOWN));
     }
   }
 

@@ -7,6 +7,7 @@ import { resolveSiteUrl } from "../lib/google/property";
 import { inspectUrlOnce } from "../lib/google/inspection-cache";
 import { canonicalDisagrees, summarise } from "../lib/google/inspection-report";
 import type { GoogleReader } from "../lib/google/reader";
+import { capped } from "../lib/render-list";
 
 export const schema = {
   ...refreshable,
@@ -41,6 +42,9 @@ export const metadata: ToolMetadata = {
 
 /** Completes the sentence "Could not …" for every failure this Tool can return. */
 const FAILURE_CONTEXT = "inspect this URL in Search Console";
+
+/** How many referring URLs to print. */
+const MAX_REFERRERS_SHOWN = 10;
 
 /** `null` reads as a blank column; say what it means instead. */
 function orNotReported(value: string | null): string {
@@ -97,9 +101,16 @@ export async function handler(
   if (summary.index.referringUrls.length > 0) {
     lines.push("");
     lines.push("=== HOW GOOGLE REACHED IT ===");
-    for (const referrer of summary.index.referringUrls.slice(0, 10)) {
-      lines.push(`  - ${referrer}`);
-    }
+    // The withheld count was missing here, which is the drift `render-list.ts`
+    // exists to stop: ten referring URLs printed with no count, so a reader could
+    // not tell whether Google reported ten or three hundred.
+    lines.push(
+      ...capped(
+        summary.index.referringUrls.map((referrer) => `- ${referrer}`),
+        MAX_REFERRERS_SHOWN,
+        { noun: "referring URL(s) Google recorded" },
+      ),
+    );
   }
 
   lines.push("");

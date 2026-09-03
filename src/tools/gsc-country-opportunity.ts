@@ -4,6 +4,7 @@ import { toolText } from "../lib/tool-result";
 import { fetchRows, gscWindowSchema } from "../lib/google/gsc-tool-shape";
 import { segmentShares } from "../lib/google/gsc-analysis";
 import type { GoogleReader } from "../lib/google/reader";
+import { withheld } from "../lib/render-list";
 
 export const schema = { ...gscWindowSchema };
 
@@ -57,7 +58,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
         `${(share.totals.ctr * 100).toFixed(2)}% / ${share.totals.position.toFixed(1)}`,
     );
   }
-  if (shares.length > MAX_SHOWN) lines.push(`  ... and ${shares.length - MAX_SHOWN} more`);
+  lines.push(...withheld(shares.length, MAX_SHOWN));
 
   // Seen a lot, clicked rarely, and big enough to matter. Countries below the
   // share floor are excluded because a 100% CTR gap on nine impressions is

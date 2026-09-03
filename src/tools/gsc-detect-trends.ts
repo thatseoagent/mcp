@@ -8,6 +8,7 @@ import {
 } from "../lib/google/gsc-tool-shape";
 import { biggestMovers, compareWindows } from "../lib/google/gsc-analysis";
 import type { GoogleReader } from "../lib/google/reader";
+import { withheld } from "../lib/render-list";
 
 export const schema = { ...gscWindowSchema };
 
@@ -84,7 +85,7 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
           `(${Math.round(movement.now.clicks)} from ${Math.round(movement.before.clicks)})${rank}`,
       );
     }
-    if (list.length > MAX_SHOWN) lines.push(`  ... and ${list.length - MAX_SHOWN} more`);
+    lines.push(...withheld(list.length, MAX_SHOWN));
   };
 
   render(`BIGGEST GAINS (${up.length})`, up);

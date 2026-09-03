@@ -7,6 +7,7 @@ import { resolveSiteUrl } from "../lib/google/property";
 import { resolveWindow } from "../lib/google/gsc-dates";
 import { inspectBusiestPages, whatWasSampled } from "../lib/google/inspected-sample";
 import type { GoogleReader } from "../lib/google/reader";
+import { withheld } from "../lib/render-list";
 
 export const schema = {
   ...refreshable,
@@ -32,6 +33,9 @@ export const metadata: ToolMetadata = {
 
 /** Completes the sentence "Could not …" for every failure this Tool can return. */
 const FAILURE_CONTEXT = "check when Google last crawled this site";
+
+/** How many stale URLs to print. */
+const MAX_STALE_SHOWN = 20;
 
 /** Past this, a page is worth mentioning as stale. Ours, not Google's. */
 const STALE_DAYS = 30;
@@ -88,7 +92,7 @@ export async function handler(
     for (const entry of stale.slice(0, 20)) {
       lines.push(`  ${entry.url} — ${entry.age} days, ${entry.impressions} impressions`);
     }
-    if (stale.length > 20) lines.push(`  ... and ${stale.length - 20} more`);
+    lines.push(...withheld(stale.length, MAX_STALE_SHOWN));
     lines.push("");
     lines.push(`${STALE_DAYS} days is our threshold, not Google's — it publishes no crawl`);
     lines.push("schedule. A page Google visits rarely is usually a page it considers stable or");

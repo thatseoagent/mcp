@@ -4,6 +4,7 @@ import { crawlSite, type PageResult } from "../lib/crawlers/site-crawler";
 import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
 import { toolText } from "../lib/tool-result";
+import { capped, withheld } from "../lib/render-list";
 
 /**
  * How many pages a crawl walks when the caller does not say.
@@ -135,10 +136,7 @@ const MAX_ROWS_SHOWN = 25;
 function section(heading: string, rows: string[]): string[] {
   if (rows.length === 0) return [];
   const lines = ["", `=== ${heading} (${rows.length}) ===`];
-  for (const row of rows.slice(0, MAX_ROWS_SHOWN)) lines.push(`  ${row}`);
-  if (rows.length > MAX_ROWS_SHOWN) {
-    lines.push(`  ... and ${rows.length - MAX_ROWS_SHOWN} more`);
-  }
+  lines.push(...capped(rows, MAX_ROWS_SHOWN));
   return lines;
 }
 
@@ -251,7 +249,7 @@ function renderPageDetail(page: PageResult): string[] {
       lines.push(`  - ${link}`);
     }
     if (page.internalLinks.length > MAX_LINKS_SHOWN) {
-      lines.push(`  ... and ${page.internalLinks.length - MAX_LINKS_SHOWN} more`);
+      lines.push(...withheld(page.internalLinks.length, MAX_LINKS_SHOWN));
     }
   }
 

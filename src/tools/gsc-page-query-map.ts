@@ -5,6 +5,7 @@ import { toolText } from "../lib/tool-result";
 import { fetchRows, gscWindowSchema } from "../lib/google/gsc-tool-shape";
 import { keyOf, totalsOf } from "../lib/google/gsc-analysis";
 import type { GoogleReader, SearchAnalyticsRow } from "../lib/google/reader";
+import { withheld } from "../lib/render-list";
 
 export const schema = {
   ...gscWindowSchema,
@@ -88,12 +89,12 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
       );
     }
     if (queries.length > MAX_QUERIES_PER_PAGE) {
-      lines.push(`  ... and ${queries.length - MAX_QUERIES_PER_PAGE} more queries`);
+      lines.push(...withheld(queries.length, MAX_QUERIES_PER_PAGE, { noun: "queries" }));
     }
   }
   if (ranked.length > MAX_PAGES) {
     lines.push("");
-    lines.push(`... and ${ranked.length - MAX_PAGES} more pages`);
+    lines.push(...withheld(ranked.length, MAX_PAGES, { noun: "pages", indent: "" }));
   }
 
   lines.push("");

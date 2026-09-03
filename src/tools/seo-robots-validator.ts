@@ -5,6 +5,7 @@ import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
 import { unwrap } from "../lib/type-guards";
 import { toolText } from "../lib/tool-result";
+import { withheld } from "../lib/render-list";
 
 export const schema = {
   ...refreshable,
@@ -32,6 +33,9 @@ export const metadata: ToolMetadata = {
 
 /** Completes the sentence "Could not …" for every failure this Tool can return. */
 const FAILURE_CONTEXT = "validate the robots.txt for this site";
+
+/** How many user-agent groups to print. */
+const MAX_DIRECTIVES_SHOWN = 20;
 
 /** The AI crawler directives a site owner would add to block model training. */
 const AI_BLOCK_EXAMPLE = [
@@ -110,7 +114,7 @@ export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_robots_validat
     }
     if (data.directives.length > 20) {
       lines.push("");
-      lines.push(`... and ${data.directives.length - 20} more user-agents`);
+      lines.push(...withheld(data.directives.length, MAX_DIRECTIVES_SHOWN, { noun: "user-agents", indent: "" }));
     }
   }
 

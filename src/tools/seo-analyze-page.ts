@@ -4,6 +4,7 @@ import { analyzeOnPageSeo } from "../lib/analyzers/onpage-seo";
 import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
 import { toolText } from "../lib/tool-result";
+import { withheld } from "../lib/render-list";
 
 export const schema = {
   ...refreshable,
@@ -69,7 +70,7 @@ export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_analyze_page",
       lines.push(`  - ${src}`);
     }
     if (result.images.withoutAlt.length > MAX_LISTED_IMAGES) {
-      lines.push(`  ... and ${result.images.withoutAlt.length - MAX_LISTED_IMAGES} more`);
+      lines.push(...withheld(result.images.withoutAlt.length, MAX_LISTED_IMAGES));
     }
   }
 

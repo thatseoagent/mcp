@@ -24,11 +24,8 @@ resolve.
 
 ## Before committing
 
-`pnpm verify` runs typecheck, lint, the unit suite and the e2e suite, in that
-order. Run it before writing a commit message that claims anything about any of
-them — two commits on `deepen-modules` claimed "typecheck clean" and were not,
-both because the linter and the suite were read and `tsc` was not.
+`pnpm verify` runs typecheck, lint, the unit suite and the e2e suite. Run it
+before a commit message claims anything about any of them.
 
-A `pre-commit` hook refuses a commit that does not typecheck or lint. It lives
-in `.githooks/` so it is versioned; enable it in a fresh clone with `pnpm
-hooks`, which points `core.hooksPath` at that directory.
+A versioned `pre-commit` hook in `.githooks/` refuses a commit that does not
+typecheck or lint. Enable it in a fresh clone with `pnpm hooks`.

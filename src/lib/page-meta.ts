@@ -48,7 +48,7 @@ export const PAGE_META_LIMIT = 25;
 
 /** How many of those run at once. Low enough to be a polite visitor to a small
  *  site, high enough that 25 pages do not take 25 round trips end to end. */
-export const PAGE_META_CONCURRENCY = 6;
+const PAGE_META_CONCURRENCY = 6;
 
 /** Bytes of each response body parsed for `<head>`. */
 const META_READ_LIMIT = 60_000;
@@ -94,7 +94,7 @@ export function extractPageMeta(html: string): { title?: string; description?: s
  * the caller's fallback (the URL slug) is the same in all of those cases and a
  * generated file should not fail because one of twenty-five pages was slow.
  */
-export async function fetchPageMeta(url: string): Promise<PageMeta> {
+async function fetchPageMeta(url: string): Promise<PageMeta> {
   try {
     const { response } = await fetchAnyStatus(url, { timeout: PER_PAGE_TIMEOUT_MS });
     if (!response.ok) return { url };

@@ -84,8 +84,3 @@ export function writeConfiguration(key: ConfigKey, value: string): boolean {
 
   return true;
 }
-
-/** Forget a value. Used by login when it replaces one account with another. */
-export function deleteConfiguration(key: ConfigKey): void {
-  database()?.delete(configuration).where(eq(configuration.key, key)).run();
-}

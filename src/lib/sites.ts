@@ -60,7 +60,7 @@ export function normaliseDomain(input: string): string {
 }
 
 /** The eTLD+1 of a domain, which is how two spellings of one property group. */
-export function registrableDomainOf(domain: string): string {
+function registrableDomainOf(domain: string): string {
   return getDomain(domain) ?? domain;
 }
 

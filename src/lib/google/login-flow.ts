@@ -36,7 +36,7 @@ import { type AddressInfo } from "node:net";
 import type { OAuth2Client } from "google-auth-library";
 
 /** How long the Operator gets to finish consenting before the server gives up. */
-export const CONSENT_TIMEOUT_MS = 5 * 60 * 1000;
+const CONSENT_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** The path Google is told to redirect to. */
 const CALLBACK_PATH = "/callback";

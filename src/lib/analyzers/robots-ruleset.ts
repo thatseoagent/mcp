@@ -48,7 +48,7 @@ export interface RobotsIssue {
 }
 
 /** Google's stated ceiling; everything past it is ignored. */
-export const ROBOTS_MAX_BYTES = 500 * 1024;
+const ROBOTS_MAX_BYTES = 500 * 1024;
 
 /**
  * Fields that are real elsewhere and ignored by Google. Naming them beats

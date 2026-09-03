@@ -623,7 +623,7 @@ export interface NavigabilityProbes {
  * final URL is what gets asked for markdown — so the first request has to
  * finish before the other two, and once it has they are independent.
  */
-export async function probeNavigability(url: string): Promise<NavigabilityProbes> {
+async function probeNavigability(url: string): Promise<NavigabilityProbes> {
   const landing = await land(url);
   const origin = new URL(landing.finalUrl).origin;
 

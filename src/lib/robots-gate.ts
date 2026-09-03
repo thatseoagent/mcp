@@ -59,7 +59,7 @@ export class RobotsDisallowedError extends Error {
  * fetch?", and the only alternative to proceeding is refusing to do the work the
  * Operator asked for because a stranger's server had a bad minute.
  */
-export async function robotsFor(origin: string): Promise<RobotsRuleset> {
+async function robotsFor(origin: string): Promise<RobotsRuleset> {
   return robotsCache.run(origin, async () => {
     try {
       // Paced, though never gated. The recursion argument only rules out asking

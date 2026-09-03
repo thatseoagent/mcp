@@ -35,7 +35,7 @@
 export const MIN_REQUEST_GAP_MS = 100;
 
 /** The window the per-origin ceiling is counted over. */
-export const ORIGIN_WINDOW_MS = 60_000;
+const ORIGIN_WINDOW_MS = 60_000;
 
 /**
  * Requests to one origin per window.

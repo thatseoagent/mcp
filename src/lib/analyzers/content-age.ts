@@ -166,7 +166,7 @@ function findPublishedAt(
  * and had to divide. Two audiences, one measurement, and the rounding lives
  * here rather than in a component.
  */
-export function spellAge(ageDays: number): string {
+function spellAge(ageDays: number): string {
   if (ageDays >= 365) {
     const years = Math.round(ageDays / 365);
     return years === 1 ? "about a year" : `about ${years} years`;

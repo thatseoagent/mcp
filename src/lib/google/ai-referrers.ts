@@ -16,7 +16,7 @@
  * This is the rule. The host list below is what we fall back on, not the other
  * way round.
  */
-export const AI_ASSISTANT_MEDIUM = "ai-assistant";
+const AI_ASSISTANT_MEDIUM = "ai-assistant";
 
 /**
  * Hosts we count as an AI engine when Google has not classified the visit.

@@ -77,7 +77,7 @@ export function matchSiteUrl(input: string, properties: readonly GscProperty[]):
  * caller is who can fix it on the next call — which also makes the message safe
  * to publish through the Tool failure seam.
  */
-export function siteResolutionError(input: string, available: readonly string[]): InvalidInputError {
+function siteResolutionError(input: string, available: readonly string[]): InvalidInputError {
   const list = available.length > 0 ? available.join(", ") : "(none)";
   return new InvalidInputError(
     `No Search Console property found for "${input}". Properties this Google account can read: ${list}. ` +

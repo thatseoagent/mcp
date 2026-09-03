@@ -29,7 +29,7 @@ import type { SearchConsoleReader } from "./reader";
  * enough to see a pattern and cheap enough to run daily; the Tools say how many
  * they looked at so nobody reads the sample as the site.
  */
-export const SAMPLE_SIZE = 20;
+const SAMPLE_SIZE = 20;
 
 /** How many inspections run at once. Google rate-limits this API tightly. */
 const CONCURRENCY = 5;

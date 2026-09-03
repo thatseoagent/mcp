@@ -40,7 +40,7 @@ import { RobotsDisallowedError } from "./robots-gate";
  * finding**: a silent cap reads as full coverage, which is the failure this repo
  * has already paid for once (#400).
  */
-export const LINK_SAMPLE = 5;
+const LINK_SAMPLE = 5;
 
 /** Per-request budget for a link probe. */
 const LINK_TIMEOUT = 8_000;

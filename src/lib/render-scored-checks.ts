@@ -36,7 +36,7 @@ export interface ReportableCheck extends Scorable {
 }
 
 /** One check: `✓ Name (12/15 pts)`, its detail, and how to re-run it. */
-export function renderCheck(check: ReportableCheck): string[] {
+function renderCheck(check: ReportableCheck): string[] {
   // `passed ?? false` because `Scorable.passed` is optional — a partial-credit
   // check has nothing useful to put there — while `renderVerdict` requires it.
   // It only reads `passed` when `points` is 0, where "no answer" and "did not

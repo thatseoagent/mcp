@@ -31,7 +31,7 @@ import { createSingleFlightCache } from "../single-flight";
 import type { SearchConsoleReader, UrlInspection } from "./reader";
 
 /** How long one URL's verdict is reused. See the module header for why an hour. */
-export const INSPECTION_TTL_MS = 60 * 60 * 1000;
+const INSPECTION_TTL_MS = 60 * 60 * 1000;
 
 const inspections = createSingleFlightCache<UrlInspection>({
   ttlMs: INSPECTION_TTL_MS,
@@ -56,9 +56,4 @@ export function inspectUrlOnce(
   url: string,
 ): Promise<UrlInspection> {
   return inspections.run(`${siteUrl} ${url}`, () => reader.inspectUrl(siteUrl, url));
-}
-
-/** How many verdicts are held. For tests and for diagnostics. */
-export function inspectionCacheSize(): number {
-  return inspections.size;
 }

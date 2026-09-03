@@ -52,7 +52,7 @@ const SERVICE = "Google's PageSpeed Insights API";
  * request timeout, so an unbounded request is an agent turn that never comes back
  * and a Tool call the client eventually gives up on with nothing to show.
  */
-export const PAGESPEED_REQUEST_TIMEOUT_MS = 45_000;
+const PAGESPEED_REQUEST_TIMEOUT_MS = 45_000;
 
 /** What the API reports on when the caller does not narrow it. */
 const DEFAULT_CATEGORIES = ["performance", "accessibility", "best-practices", "seo"] as const;
@@ -220,7 +220,7 @@ async function fetchInsights(
  * Separated from the fetch so it can be tested against a captured payload
  * without a network call.
  */
-export function readInsights(
+function readInsights(
   payload: unknown,
   url: string,
   strategy: Strategy,

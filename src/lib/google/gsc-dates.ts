@@ -24,10 +24,10 @@
 export const LAG_DAYS = 3;
 
 /** Google's retention for Search Analytics. */
-export const RETENTION_DAYS = 16 * 30;
+const RETENTION_DAYS = 16 * 30;
 
 /** `YYYY-MM-DD` for a date, in UTC, which is the only timezone Google uses here. */
-export function isoDate(date: Date): string {
+function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 

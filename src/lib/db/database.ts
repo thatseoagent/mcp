@@ -103,7 +103,7 @@ function packageRoot(): string {
 }
 
 /** Where the database would be, without opening it. Exported for diagnostics. */
-export function databasePath(): string | null {
+function databasePath(): string | null {
   // Through the same loader every other variable goes through, so `.env` is the
   // one file an Operator configures.
   loadEnvFile();
@@ -158,10 +158,4 @@ export function openDatabase(): { open: OpenDatabase } | { open: null; reason: s
       reason: `the database at ${file} could not be opened (its error has been logged to stderr)`,
     };
   }
-}
-
-/** Has a database file been created yet? For diagnostics and for tests. */
-export function databaseExists(): boolean {
-  const file = databasePath();
-  return file !== null && existsSync(file);
 }

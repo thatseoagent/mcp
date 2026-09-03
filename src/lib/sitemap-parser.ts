@@ -32,7 +32,7 @@ interface Urlset {
 const MAX_DEPTH = 3;
 const REQUEST_TIMEOUT = 10_000; // 10 seconds
 
-export class SitemapParser {
+class SitemapParser {
   private readonly parser: XMLParser;
   private readonly seenUrls = new Set<string>();
 

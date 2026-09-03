@@ -36,7 +36,7 @@ export const MAX_HOPS = 5;
  * site that advertises a spec and redirects, so this bounds the slowest one rather
  * than the run. The tier that adds probes owns the arithmetic.
  */
-export const PROBE_TIMEOUT = 15_000;
+const PROBE_TIMEOUT = 15_000;
 
 export type Probe =
   | { ok: true; status: number; headers: Headers; body: string; url: string }

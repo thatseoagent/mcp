@@ -58,7 +58,7 @@ export const METRICS: readonly MetricDefinition[] = [
 
 const BY_KEY = new Map(METRICS.map((metric) => [metric.key, metric]));
 
-export function metricDefinition(key: string): MetricDefinition | null {
+function metricDefinition(key: string): MetricDefinition | null {
   return BY_KEY.get(key) ?? null;
 }
 
@@ -199,7 +199,7 @@ export function movementOf(siteId: string, metric: string, since?: Date): Moveme
 }
 
 /** `YYYY-MM` for an instant, in UTC. See `schema.ts` on why a month is text. */
-export function monthOf(at: Date): string {
+function monthOf(at: Date): string {
   return at.toISOString().slice(0, 7);
 }
 

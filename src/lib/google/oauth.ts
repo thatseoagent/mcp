@@ -63,7 +63,7 @@ export const GOOGLE_CLIENT_SECRET: ConfigRequirement = {
  * actually has to run — telling them to set `google.tokens` by hand would be
  * true and useless.
  */
-export const GOOGLE_LOGIN: ConfigRequirement = {
+const GOOGLE_LOGIN: ConfigRequirement = {
   variable: "the Google login",
   purpose: "read your Search Console and Analytics data",
   howToGet: "Run `thatseoagent-mcp-login` (or `pnpm login` from a clone) and authorize in the browser.",

@@ -25,7 +25,7 @@ import type { TrustPageFinding, TrustPageKind } from "../site-trust-pages";
  * `report-findings` reads `authorBio` to decide whether to raise an authorship
  * finding, and at what severity given the page's Content Age.
  */
-export const EEAT_SIGNAL = {
+const EEAT_SIGNAL = {
   authorBio: "Author bio / credentials",
 } as const;
 

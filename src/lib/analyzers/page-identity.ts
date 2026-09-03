@@ -43,8 +43,8 @@ const INDEX_FILE = /^index\.(html?|php|aspx?)$/i;
 
 export const ARTICLE_TYPES = ["Article", "BlogPosting", "NewsArticle", "TechArticle", "Report"];
 export const PRODUCT_TYPES = ["Product", "ProductGroup", "Offer"];
-export const COLLECTION_TYPES = ["CollectionPage", "ItemList", "SearchResultsPage"];
-export const PROFILE_TYPES = ["ProfilePage", "AboutPage"];
+const COLLECTION_TYPES = ["CollectionPage", "ItemList", "SearchResultsPage"];
+const PROFILE_TYPES = ["ProfilePage", "AboutPage"];
 
 // Path slugs cover English and Spanish so a localized page gets the same kind as
 // its English equivalent. This feeds the N/A classification that drives the

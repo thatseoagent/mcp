@@ -84,7 +84,7 @@ export const REQUIRED_FIELDS_BY_TYPE: Record<string, string[]> = {
 /**
  * Recommended fields that improve schema quality.
  */
-export const RECOMMENDED_FIELDS_BY_TYPE: Record<string, string[]> = {
+const RECOMMENDED_FIELDS_BY_TYPE: Record<string, string[]> = {
   Organization: ["logo", "contactPoint", "sameAs"],
   LocalBusiness: ["image", "priceRange", "openingHours"],
   Article: ["image", "dateModified"],

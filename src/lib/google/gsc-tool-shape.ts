@@ -61,11 +61,12 @@ export interface FetchedRows {
   footer: string[];
 }
 
-/** Google's ceiling for one Search Analytics request. */
-export const MAX_ROWS = 25_000;
-
 /**
  * The page size these Tools ask for when they do not say.
+ *
+ * Google's own ceiling for one Search Analytics request is 25,000 rows. That was
+ * an exported `MAX_ROWS` with no callers — a fact worth knowing, stated as an
+ * interface nobody used, so it is stated here instead.
  *
  * High because they analyse rather than list: a truncated read silently drops
  * the queries below the cut, and a "no cannibalization found" built on the top

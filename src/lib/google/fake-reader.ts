@@ -22,10 +22,18 @@
  * fixture where everything is well-formed tests the happy path and hides the
  * rest.
  *
- * Every method can be overridden per test, and any method left unspecified
- * throws — never returns empty. An unstubbed call returning `[]` would let a
- * test pass while asserting nothing, which is the failure mode this file exists
- * to remove.
+ * Every method can be overridden per test, and **no default is empty**. That is
+ * the property this file exists to hold: an unstubbed call returning `[]` lets a
+ * test pass while asserting nothing, so a test that forgot to stub a method it
+ * depends on would look like a test that verified something.
+ *
+ * This paragraph used to say that an unspecified method "throws — never returns
+ * empty", which was never true of any of the eleven and contradicted the
+ * argument for the defaults ten lines below: a test that only cares about
+ * `listProperties` says so and inherits sensible answers for the rest. Throwing
+ * and returning a rich fixture are two different ways to close the same hole,
+ * and this file chose the second one on purpose. `fake-reader.test.ts` pins that
+ * it stays closed.
  */
 import type {
   Ga4Compatibility,

@@ -75,7 +75,13 @@ export function loadEnvFile(): void {
   }
 }
 
-/** Forget that the file was read. For tests. */
+/**
+ * Forget that the file was read. For tests.
+ *
+ * `loaded` is module state, so a case that points `TSA_ENV_FILE` at its own
+ * temporary file has to clear it or `loadEnvFile()` returns without reading.
+ * `env-file.test.ts` calls this four times.
+ */
 export function resetEnvFile(): void {
   loaded = false;
 }

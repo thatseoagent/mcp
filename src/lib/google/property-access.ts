@@ -93,15 +93,8 @@ export function accessFor(domain: string, properties: readonly GscProperty[]): P
   };
 }
 
-/**
- * The same, asking Google for the list first.
- *
- * For a single check. A caller with several Sites should read the list once and
- * call {@link accessFor} per Site.
- */
-export async function checkPropertyAccess(
-  reader: SearchConsoleReader,
-  domain: string,
-): Promise<PropertyAccess> {
-  return accessFor(domain, await reader.listProperties());
-}
+// A `checkPropertyAccess(reader, domain)` lived here, wrapping `accessFor` with
+// the `listProperties` call. It had no callers: both real ones — `run_site_audit`
+// and `sync_gsc_properties` — read the list once and call `accessFor` per Site,
+// which is what its own docstring told a caller with several Sites to do. One
+// interface, with adapters.

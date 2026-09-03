@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { auditAgentDiscovery, type AgentDiscoveryResult } from "@/lib/analyzers/agent-discovery";
 import { tally } from "@/lib/analyzers/scored-checks";
 import { unwrap } from "@/lib/type-guards";
-import { serve, restoreFetch, type FetchMock } from "../../helpers/serve";
+import { serve, restoreFetch, type FetchMock, type Route } from "../../helpers/serve";
 
 /**
  * The discovery tier, through its own interface.
@@ -251,5 +251,114 @@ describe("the bonus denominator", () => {
     expect(check(result, /pricing\.md/).passed).toBe(true);
     expect(result.bonus).toBeGreaterThan(0);
     expect(result.bonus).toBeLessThan(1);
+  });
+});
+
+describe("a site that publishes the chain, correctly", () => {
+  const CARD = {
+    name: "Example",
+    description: "The example server.",
+    version: "1.0.0",
+    serverUrl: "https://example.com/mcp",
+    tools: [{ name: "search" }, { name: "fetch" }],
+  };
+
+  const wellFormed: Record<string, Route> = {
+    [PAGE]: page,
+    [at("/.well-known/mcp/server-card.json")]: {
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(CARD),
+    },
+    [at("/mcp")]: {
+      status: 401,
+      headers: {
+        "content-type": "application/json",
+        "www-authenticate": `Bearer resource_metadata="${at("/.well-known/oauth-protected-resource/mcp")}"`,
+      },
+      body: JSON.stringify({ error: "invalid_token" }),
+    },
+    [at("/.well-known/oauth-protected-resource/mcp")]: {
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        resource: at("/mcp"),
+        authorization_servers: ["https://example.com"],
+        scopes_supported: ["read"],
+        bearer_methods_supported: ["header"],
+      }),
+    },
+    [at("/.well-known/oauth-authorization-server")]: {
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        issuer: "https://example.com",
+        authorization_endpoint: at("/oauth/authorize"),
+        token_endpoint: at("/oauth/token"),
+        registration_endpoint: at("/oauth/register"),
+        code_challenge_methods_supported: ["S256"],
+      }),
+    },
+    [at("/auth.md")]: {
+      headers: { "content-type": "text/markdown" },
+      body: [
+        "# Auth",
+        "## Discover",
+        "Start at /.well-known/oauth-protected-resource.",
+        "## Pick a method",
+        "## Register a client",
+        "## Claim",
+        "## Use the credential",
+        "## Errors",
+        "## Revocation",
+        "Every section here exists so an agent has somewhere to go next rather than a guess.",
+      ].join("\n\n"),
+    },
+  };
+
+  it("walks the auth chain end to end", async () => {
+    serve(wellFormed);
+
+    const chain = check(await read(), /walked end to end/);
+
+    // The check #389 says matters most: "each file can be individually valid and
+    // the path still broken". Every case above this one is a way for it to
+    // break, and none of them proved it can close.
+    expect(chain.passed).toBe(true);
+    expect(chain.detail).toContain("protected-resource metadata");
+    expect(chain.detail).toContain("authorization-server metadata");
+  });
+
+  it("credits a protected endpoint that names its own resource metadata", async () => {
+    serve(wellFormed);
+
+    const endpoint = check(await read(), /MCP endpoint/);
+
+    // 401 is a pass here: a protected server answering a structured refusal is
+    // doing the right thing, and the `resource_metadata` parameter is RFC 9728
+    // §5.1 handing an agent the next document instead of leaving it to guess.
+    expect(endpoint.passed).toBe(true);
+    expect(endpoint.detail).toContain("protected");
+  });
+
+  it("adds a real bonus for it", async () => {
+    serve(wellFormed);
+
+    const result = await read();
+
+    expect(result.quality.score).toBeGreaterThan(50);
+    expect(result.bonus).toBeGreaterThan(2);
+    expect(result.bonus).toBeLessThanOrEqual(result.maxBonus);
+  });
+
+  it("distinguishes a malformed artifact from an absent one", async () => {
+    serve({ ...wellFormed, [at("/.well-known/mcp/server-card.json")]: { body: "not json at all" } });
+
+    const card = check(await read(), /server card/);
+
+    // Zero earned, full points still on the table. A document that answered 200
+    // and is not the document it claims to be is the class of defect this tier
+    // was written for — and it is the one a checker that asserts reachability
+    // would have called fine.
+    expect(card.earned).toBe(0);
+    expect(card.points).toBe(10);
+    expect(card.status).toBeUndefined();
   });
 });

@@ -7,6 +7,13 @@ import { domainFromUrl, refreshable } from "../lib/with-cache";
 import { toolError, toolText } from "../lib/tool-result";
 import { unwrap } from "../lib/type-guards";
 import { readPage, type ParsedPage } from "../lib/analyzers/parsed-page";
+import {
+  countQuestionHeadings,
+  countStatistics,
+  hasSummarySection,
+  isListicle,
+  listicleShape,
+} from "../lib/analyzers/content-signals";
 
 export const schema = {
   ...refreshable,
@@ -68,62 +75,26 @@ async function fetchHtmlRaw(url: string): Promise<string | null> {
 }
 
 function computeGeoSignals(page: ParsedPage): GeoSignals {
-  const { html } = page;
-  // The seventh hand-rolled copy of this derivation, and the only one in
-  // `src/tools/`. `readableDocument` is the module that knows how to read a
-  // page's copy; the regex kept `<script>` text nodes and glued words together
-  // across `<br>`. The rest of this function matches against markup structure —
-  // `<ol>`, `<h2>`, class attributes — where the raw string is the right input.
-  const textContent = page.readable.mainContent();
-
-  // Citation density: how often the copy states a figure an answer engine can quote.
-  const statsPattern = /(\d+\.?\d*\s*%|\$\d[\d,]*|\d+\s+out\s+of\s+\d+|\d+x\s)/gi;
-  const citationDensity = (textContent.match(statsPattern) ?? []).length;
-
-  const qaHeadingPattern = /<h[2-3][^>]*>([^<]+)<\/h[2-3]>/gi;
-  const questionWordRe = /^\s*(?:what|how|why|when|where|who|which|can|does|is|are|should|will)\b/i;
-  const endsWithQuestionRe = /\?\s*$/;
-  let qaHeadings = 0;
-  let heading: RegExpExecArray | null;
-  while ((heading = qaHeadingPattern.exec(html)) !== null) {
-    const text = heading[1].replace(/<[^>]+>/g, "").trim();
-    if (questionWordRe.test(text) || endsWithQuestionRe.test(text)) qaHeadings++;
-  }
-
-  const hasSummarySection =
-    /(?:class|id)=["'][^"']*(?:tldr|summary|takeaway|overview)[^"']*["']/i.test(html);
-
-  // A listicle is a numbered heading, an ordered list of at least three items, or
-  // a table of at least three rows.
-  const numberedHeadingRe =
-    /<h[1-6][^>]*>[^<]*(?:\b\d+\s+(?:best|top|ways|tips|tools|reasons|steps|things|examples|ideas)\b|top\s+\d+\b)[^<]*<\/h[1-6]>/gi;
-  const hasNumberedHeading = numberedHeadingRe.test(html);
-
-  const olPattern = /<ol[^>]*>([\s\S]*?)<\/ol>/gi;
-  let hasOlWithItems = false;
-  let list: RegExpExecArray | null;
-  while ((list = olPattern.exec(html)) !== null) {
-    if ((list[1].match(/<li[^>]*>/gi) ?? []).length >= 3) {
-      hasOlWithItems = true;
-      break;
-    }
-  }
-
-  const tablePattern = /<table[^>]*>([\s\S]*?)<\/table>/gi;
-  let hasComparisonTable = false;
-  let table: RegExpExecArray | null;
-  while ((table = tablePattern.exec(html)) !== null) {
-    if ((table[1].match(/<tr[^>]*>/gi) ?? []).length >= 3) {
-      hasComparisonTable = true;
-      break;
-    }
-  }
-
+  // ── This function was a fork, and the fork had already cost something ──
+  //
+  // All four of these detectors existed in `geo-analyzer` first, bilingually,
+  // and this copy dropped the Spanish alternatives from every one of them: the
+  // written magnitudes (`millones`, `mil`), the Spanish question words, the
+  // Spanish summary classes (`resumen`, `puntos-clave`), and the Spanish
+  // listicle vocabulary (`mejores`, `formas`, `pasos`). `geo-analyzer` documents
+  // that exact regression as something it had already fixed — "dropping it would
+  // have quietly stopped counting 'más de 80 millones' as a statistic on every
+  // Spanish page" — and the fork reintroduced it one directory away, where
+  // nothing pointed at the decision it was undoing.
+  //
+  // One detector module now. What this Tool does differently is what it *says*
+  // about the detection — it reports these as measurements rather than scoring
+  // them — and that stays here.
   return {
-    citationDensity,
-    qaHeadings,
-    hasSummarySection,
-    hasListicle: hasNumberedHeading || hasOlWithItems || hasComparisonTable,
+    citationDensity: countStatistics(page.readable.mainContent()),
+    qaHeadings: countQuestionHeadings(page.readable),
+    hasSummarySection: hasSummarySection(page.html),
+    hasListicle: isListicle(listicleShape(page.html)),
   };
 }
 

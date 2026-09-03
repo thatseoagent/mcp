@@ -176,7 +176,7 @@ describe("Spanish content signals", () => {
     expect(findCheck(cat, "Definition")?.passed).toBe(true);
     // Question headings moved to QUERY OPTIMIZATION when the duplicate pair was
     // merged; the Spanish question words must still be recognised there.
-    const qo = scoreQueryOptimization(html, [], "article");
+    const qo = scoreQueryOptimization(page(html), [], "article");
     expect(findCheck(qo, "Question-phrased")?.passed).toBe(true);
   });
 
@@ -212,7 +212,7 @@ describe("Spanish content signals", () => {
       <div class="resumen">Resumen ejecutivo del artículo.</div>
       <h3>Cómo elegir un CRM</h3>
     </body></html>`;
-    const cat = scoreQueryOptimization(html, [], "article");
+    const cat = scoreQueryOptimization(page(html), [], "article");
     expect(findCheck(cat, "summary")?.passed).toBe(true); // class="resumen"
     expect(findCheck(cat, "Question-phrased")?.passed).toBe(true); // "Cómo elegir…" (no '?')
   });
@@ -433,13 +433,13 @@ describe("more page-type-blind checks found reviewing the whole breakdown", () =
     });
 
     it("does not pass on FAQPage schema alone", () => {
-      const c = find(scoreQueryOptimization(noQaHtml, FAQ_SCHEMA_ONLY, "article"), "Visible Q&A");
+      const c = find(scoreQueryOptimization(page(noQaHtml), FAQ_SCHEMA_ONLY, "article"), "Visible Q&A");
       expect(c.passed).toBe(false);
     });
 
     it("still passes on a real disclosure pattern with no schema at all", () => {
       const html = "<html><body><details><summary>What is it?</summary><p>This.</p></details></body></html>";
-      expect(find(scoreQueryOptimization(html, [], "article"), "Visible Q&A").passed).toBe(true);
+      expect(find(scoreQueryOptimization(page(html), [], "article"), "Visible Q&A").passed).toBe(true);
     });
   });
 
@@ -489,7 +489,7 @@ describe("more page-type-blind checks found reviewing the whole breakdown", () =
     });
 
     it("marks TL;DR / summary as not applicable", () => {
-      expect(find(scoreQueryOptimization(bare, [], "homepage"), "TL;DR / summary").status).toBe("not-applicable");
+      expect(find(scoreQueryOptimization(page(bare), [], "homepage"), "TL;DR / summary").status).toBe("not-applicable");
     });
 
     it("marks listicle formatting as not applicable", () => {
@@ -500,7 +500,7 @@ describe("more page-type-blind checks found reviewing the whole breakdown", () =
 
     it("still expects all of them on an article", () => {
       const cs = scoreCitationSignals(page(bare), "article");
-      const qo = scoreQueryOptimization(bare, [], "article");
+      const qo = scoreQueryOptimization(page(bare), [], "article");
       expect(find(cs, "Blockquote elements present").status).toBeUndefined();
       expect(find(cs, "Reference links").status).toBeUndefined();
       expect(find(qo, "TL;DR / summary").status).toBeUndefined();
@@ -564,7 +564,7 @@ describe("a category derives its own arithmetic", () => {
       scoreContentCitability(page(html), pageType),
       scoreCitationSignals(page(html), pageType),
       scoreFreshnessSignals(html, {}, pageType),
-      scoreQueryOptimization(html, [], pageType),
+      scoreQueryOptimization(page(html), [], pageType),
     ];
   };
 
@@ -707,7 +707,7 @@ describe("each signal is counted once", () => {
       scoreContentCitability(page(html), pageType),
       scoreCitationSignals(page(html), pageType),
       scoreFreshnessSignals(html, {}, pageType),
-      scoreQueryOptimization(html, [], pageType),
+      scoreQueryOptimization(page(html), [], pageType),
     ];
   };
 
@@ -748,7 +748,7 @@ describe("each signal is counted once", () => {
 
     // Question heading without a question mark, which only the broader test caught.
     const q = "<html><body><h2>How does indexing work</h2></body></html>";
-    expect(scoreQueryOptimization(q, [], "article").checks.find((c) => /question.{0,10}phrased/i.test(c.label))!.passed).toBe(true);
+    expect(scoreQueryOptimization(page(q), [], "article").checks.find((c) => /question.{0,10}phrased/i.test(c.label))!.passed).toBe(true);
   });
 });
 

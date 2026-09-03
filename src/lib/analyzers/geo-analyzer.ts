@@ -167,6 +167,16 @@ import { tally, notScored, type Scorable } from "./scored-checks";
 import { parseRobots } from "./robots-ruleset";
 import { answered, textOrEmpty, type WellKnownRead } from "../well-known";
 import { countWords } from "../text-analyzer";
+import {
+  countQuestionHeadings,
+  countStatistics,
+  definesSomething,
+  hasSummarySection,
+  isListicle,
+  listicleShape,
+  statesAStatistic,
+} from "./content-signals";
+import { SUPPORTED_LANGUAGES } from "./answer-patterns";
 import { getSchemaTypes } from "./json-ld-graph";
 import type { ParsedPage } from "./parsed-page";
 import type { KnowledgeGraphMatch } from "../knowledge-graph";
@@ -856,28 +866,44 @@ export function scoreContentCitability(page: ParsedPage, pageType: PageKind): Ge
 
   const textContent = readable.mainContent();
 
-  // Definition patterns, EN + ES ("X es un/una…", "se refiere a", "significa"…).
-  const defPattern = /\b(?:is\s+(?:a|an|the)\s+\w|refers\s+to\s+|means\s+|defined\s+as\s+|es\s+(?:un|una|el|la|uno)\s+\w|son\s+(?:un|una|unos|unas|los|las)\s+\w|se\s+refiere\s+a\s+|significa\s+|se\s+define\s+como\s+|consiste\s+en\s+)/i;
+  // Definitional phrasing, in the language the page declares. This was a
+  // hardcoded EN+ES regex, which fixed Spanish and left German exactly as
+  // broken — silently, which `answer-patterns.ts` says is "the shape of the
+  // original bug, not a fix for it". Going through it means an unreadable
+  // language becomes `not-evaluated` and the reader is told we cannot read
+  // definitions in their language yet, instead of being told their page has none.
+  const defines = definesSomething(textContent, page.language);
+  const DEFINITION_LABEL = "Definition patterns present (X is a…, refers to, means)";
   if (pageType === "homepage") {
-    checks.push(naCheck("Definition patterns present (X is a…, refers to, means)", 4, pageType));
-  } else {
-    const hasDefinitions = defPattern.test(textContent);
+    checks.push(naCheck(DEFINITION_LABEL, 4, pageType));
+  } else if (defines.outcome === "unsupported") {
     checks.push({
-      passed: hasDefinitions,
-      label: "Definition patterns present (X is a…, refers to, means)", source: CITABILITY_HEURISTIC,
+      passed: false,
+      label: DEFINITION_LABEL, source: CITABILITY_HEURISTIC,
       points: 4,
-      detail: hasDefinitions
+      status: "not-evaluated",
+      detail: notScored(
+        `we cannot read definitional phrasing in ${defines.languageName} yet`,
+        `the page is not at fault — supported languages are ${SUPPORTED_LANGUAGES.join(", ")}`,
+      ),
+    });
+  } else {
+    checks.push({
+      passed: defines.defines,
+      label: DEFINITION_LABEL, source: CITABILITY_HEURISTIC,
+      points: 4,
+      detail: defines.defines
         ? "Definition patterns detected"
         : "No definition patterns found — add definitional sentences near the top",
     });
   }
 
-
   const first150Words = textContent.split(/\s+/).slice(0, 150).join(" ");
+  const earlyDefines = definesSomething(first150Words, page.language);
   const hasEarlyAnswer =
     first150Words.length > 80 &&
-    (defPattern.test(first150Words) ||
-      /\b\d+(?:\.\d+)?\s*(?:%|percent|million|billion|thousand|por\s?ciento|millones|millón|millon|mil)\b/i.test(first150Words));
+    ((earlyDefines.outcome === "answered" && earlyDefines.defines) ||
+      statesAStatistic(first150Words));
   checks.push({
     passed: hasEarlyAnswer,
     label: "Answer-first structure (key info/stats in first 150 words)", source: CITABILITY_HEURISTIC,
@@ -896,12 +922,12 @@ export function scoreCitationSignals(page: ParsedPage, pageType: PageKind): GeoC
 
   const textContent = readable.mainContent();
 
-  // The union of what the two merged checks detected. The density copy in CONTENT
-  // STRUCTURED also matched written magnitudes in English and Spanish (million,
-  // millones, mil), which this one did not — dropping it would have quietly
-  // stopped counting "más de 80 millones" as a statistic on every Spanish page.
-  const statsPattern = /(\d+\.?\d*\s*%|\$\d[\d,]*|\d+\s+out\s+of\s+\d+|\d+\s+de\s+cada\s+\d+|\d+x\s|\b\d+(?:[.,]\d+)?\s*(?:million|billion|thousand|millones|millón|millon|mil|k\b))/gi;
-  const statsMatches = textContent.match(statsPattern) ?? [];
+  // The union of what the two merged checks detected, and it lives in
+  // `content-signals` now. The written magnitudes are the part a fork dropped:
+  // losing `millones|mil` "would have quietly stopped counting 'más de 80
+  // millones' as a statistic on every Spanish page", which is exactly what
+  // happened when `seo-content-analysis` copied the English half.
+  const statisticCount = countStatistics(textContent);
   // CONTENT STRUCTURE excused a homepage from its statistics check while this one
   // scored the same signal anyway: one page, two verdicts. Gated identically now.
   if (pageType === "homepage") {
@@ -912,13 +938,13 @@ export function scoreCitationSignals(page: ParsedPage, pageType: PageKind): GeoC
     // is wrong, and requiring only one would newly fail the pages the other
     // caught — a short page with two figures, or a long one with a good rate.
     const words = textContent.split(/\s+/).filter(Boolean).length;
-    const per1k = words > 0 ? (statsMatches.length / words) * 1000 : 0;
-    const hasStats = statsMatches.length >= 2 || per1k >= 2;
+    const per1k = words > 0 ? (statisticCount / words) * 1000 : 0;
+    const hasStats = statisticCount >= 2 || per1k >= 2;
     checks.push({
       passed: hasStats,
       label: "Statistics & numerical data (%, $, ratios)", source: CITABILITY_HEURISTIC,
       points: 5,
-      detail: `${statsMatches.length} statistical pattern(s), ${per1k.toFixed(1)} per 1k words`,
+      detail: `${statisticCount} statistical pattern(s), ${per1k.toFixed(1)} per 1k words`,
     });
   }
 
@@ -1037,20 +1063,18 @@ export function scoreFreshnessSignals(html: string, responseHeaders: Record<stri
   return category("freshnesSignals", "FRESHNESS SIGNALS", checks);
 }
 
-export function scoreQueryOptimization(html: string, schemas: readonly unknown[], pageType: PageKind): GeoCategory {
+export function scoreQueryOptimization(
+  page: ParsedPage,
+  schemas: readonly unknown[],
+  pageType: PageKind,
+): GeoCategory {
+  const { html, readable } = page;
   const checks: GeoCheck[] = [];
 
-  const qaHeadingPattern = /<h[2-3][^>]*>([^<]+)<\/h[2-3]>/gi;
-  const questionWordRe = /^\s*¿?\s*(?:what|how|why|when|where|who|which|can|does|is|are|should|will|qué|que|cómo|como|por qué|por que|cuándo|cuando|dónde|donde|quién|quien|cuál|cual|cuánto|cuanto|cuántos|cuantos|puede|debería|deberia|es|son)\b/i;
-  const endsWithQuestionRe = /\?\s*$/;
-  let qaHeadingCount = 0;
-  let hm: RegExpExecArray | null;
-  while ((hm = qaHeadingPattern.exec(html)) !== null) {
-    const text = hm[1].replace(/<[^>]+>/g, "").trim();
-    if (questionWordRe.test(text) || endsWithQuestionRe.test(text)) {
-      qaHeadingCount++;
-    }
-  }
+  // Counted inside the page's own copy. It used to scan every `<h2>`/`<h3>` in the
+  // markup, so a site-wide nav heading counted as this page asking a question —
+  // the distinction `textsInContent` exists to draw.
+  const qaHeadingCount = countQuestionHeadings(readable);
   const hasQaHeadings = qaHeadingCount >= 1;
   checks.push({
     passed: hasQaHeadings,
@@ -1061,17 +1085,16 @@ export function scoreQueryOptimization(html: string, schemas: readonly unknown[]
     detail: `${qaHeadingCount} question-phrased heading(s) found`,
   });
 
-  const summaryPattern = /(?:class|id)=["'][^"']*(?:tldr|summary|takeaway|overview|resumen|claves|puntos-clave)[^"']*["']/i;
-  const hasSummarySection = summaryPattern.test(html);
+  const hasSummary = hasSummarySection(html);
   // A TL;DR summarises a long read. A homepage has nothing to summarise.
   if (pageType === "homepage") {
     checks.push(naCheck(LABEL.tldr, 5, pageType));
   } else {
     checks.push({
-      passed: hasSummarySection,
+      passed: hasSummary,
       label: LABEL.tldr, source: CITABILITY_HEURISTIC,
       points: 5,
-      detail: hasSummarySection
+      detail: hasSummary
         ? "Summary/TL;DR section detected (class/id contains tldr, summary, takeaway, or overview)"
         : "No summary or TL;DR section detected",
     });
@@ -1120,30 +1143,12 @@ export function scoreQueryOptimization(html: string, schemas: readonly unknown[]
 }
 
 function scoreListicleFormatting(html: string): GeoCheck {
-  const numberedHeadingRe = /<h[1-6][^>]*>[^<]*(?:\b\d+\s+(?:best|top|ways|tips|tools|reasons|steps|things|examples|ideas|mejores|mejor|formas|maneras|consejos|herramientas|razones|pasos|cosas|ejemplos|ideas|trucos)\b|top\s+\d+\b|los\s+\d+\s+mejores\b)[^<]*<\/h[1-6]>/gi;
-  const hasNumberedHeading = numberedHeadingRe.test(html);
-
-  const olPattern = /<ol[^>]*>([\s\S]*?)<\/ol>/gi;
-  let hasOlWithItems = false;
-  let om: RegExpExecArray | null;
-  while ((om = olPattern.exec(html)) !== null) {
-    const liCount = (om[1].match(/<li[^>]*>/gi) ?? []).length;
-    if (liCount >= 3) { hasOlWithItems = true; break; }
-  }
-
-  const tablePattern = /<table[^>]*>([\s\S]*?)<\/table>/gi;
-  let hasComparisonTable = false;
-  let tm: RegExpExecArray | null;
-  while ((tm = tablePattern.exec(html)) !== null) {
-    const rowCount = (tm[1].match(/<tr[^>]*>/gi) ?? []).length;
-    if (rowCount >= 3) { hasComparisonTable = true; break; }
-  }
-
-  const passed = hasNumberedHeading || hasOlWithItems || hasComparisonTable;
+  const shape = listicleShape(html);
+  const passed = isListicle(shape);
   const detailParts: string[] = [];
-  if (hasNumberedHeading) detailParts.push("numbered heading (Top N / N best)");
-  if (hasOlWithItems) detailParts.push("ordered list with 3+ items");
-  if (hasComparisonTable) detailParts.push("table with 3+ rows");
+  if (shape.numberedHeading) detailParts.push("numbered heading (Top N / N best)");
+  if (shape.orderedList) detailParts.push("ordered list with 3+ items");
+  if (shape.comparisonTable) detailParts.push("table with 3+ rows");
 
   return {
     passed,
@@ -1344,7 +1349,7 @@ export function scoreGeo(input: GeoInput): GeoReading {
     scoreContentCitability(page, pageType),
     scoreCitationSignals(page, pageType),
     scoreFreshnessSignals(html, responseHeaders, pageType),
-    scoreQueryOptimization(html, schemas, pageType),
+    scoreQueryOptimization(page, schemas, pageType),
   ];
 
   const knowledgeGraph = knowledgeGraphCheck(

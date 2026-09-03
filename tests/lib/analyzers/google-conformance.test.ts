@@ -251,7 +251,7 @@ describe("the AI-optimization guide — no unpublished mechanism claims", () => 
   function allRecommendations(): string[] {
     const empty = "<html><head><title>t</title></head><body><p>short</p></body></html>";
     const categories = [
-      scoreQueryOptimization(empty, [], "article"),
+      scoreQueryOptimization(parsedPage(empty), [], "article"),
       scoreCitationSignals(parsedPage(empty), "article"),
       geo.scoreContentCitability(parsedPage(empty), "article"),
       geo.scoreFreshnessSignals(empty, {}, "article"),
@@ -288,7 +288,7 @@ describe("the AI-optimization guide — no unpublished mechanism claims", () => 
     // reading of how answer engines pick passages. Not one of its checks has a
     // Google sentence behind it, so not one may look like it does.
     const cat = scoreQueryOptimization(
-      "<html><body><h2>Overview</h2><p>text</p></body></html>",
+      parsedPage("<html><body><h2>Overview</h2><p>text</p></body></html>"),
       [],
       "article"
     );
@@ -300,7 +300,7 @@ describe("the AI-optimization guide — no unpublished mechanism claims", () => 
   });
 
   it("keeps the qualifier out of the structured name, which is an identifier", () => {
-    const cat = geo.scoreQueryOptimization("<html><body><h2>Overview</h2></body></html>", [], "article");
+    const cat = geo.scoreQueryOptimization(parsedPage("<html><body><h2>Overview</h2></body></html>"), [], "article");
     const check = cat.checks.find((c) => !c.status)!;
 
     // Prose carries it inline; structured output keeps it in its own field. The

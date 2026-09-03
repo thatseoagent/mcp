@@ -81,7 +81,7 @@ function everyLabel(): Set<string> {
       scoreContentCitability(page("<html></html>"), kind),
       scoreCitationSignals(page("<html></html>"), kind),
       scoreFreshnessSignals("<html></html>", {}, kind),
-      scoreQueryOptimization("<html></html>", [], kind),
+      scoreQueryOptimization(page("<html></html>"), [], kind),
     ];
     for (const cat of categories) for (const c of cat.checks) labels.add(c.label);
   }

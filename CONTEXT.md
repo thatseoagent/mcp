@@ -37,6 +37,16 @@ Whether the Operator's Google account can actually read a Site's Google Property
 Verified against Google, never assumed or stored as an entitlement.
 _Avoid_: permission, entitlement, authorization, ownership
 
+**Content Signal**:
+A phrasing or structure in a page's copy that answer engines read — a stated
+figure, a question-phrased heading, a summary block, listicle formatting,
+definitional phrasing. Detected in one place, `analyzers/content-signals.ts`, and
+scored or reported separately by whoever asks: the same detection backs a GEO
+check worth points and a `seo_content_analysis` measurement worth none. The
+phrasings that vary by language come from `answer-patterns.ts`, which says
+`unsupported` for a language it cannot read rather than failing a correct page.
+_Avoid_: GEO signal (the detection is not GEO's), pattern, heuristic
+
 ## Rules
 
 **A Tool that cannot do its whole job says so; it never returns less and stays quiet.**

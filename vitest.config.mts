@@ -29,8 +29,8 @@ export default defineConfig({
       /**
        * A floor, not a target.
        *
-       * Set a little under what the suite already reaches (88% of statements,
-       * 74% of branches) so the number's job is to catch a module landing with
+       * Set a little under what the suite already reaches (89% of statements,
+       * 77% of branches) so the number's job is to catch a module landing with
        * no test rather than to be negotiated with. Raising a threshold is a
        * decision; drifting under one is an accident, and this is the only thing
        * that can tell them apart.
@@ -40,10 +40,10 @@ export default defineConfig({
        * unreachable from a test that does not stub a network refusal.
        */
       thresholds: {
-        statements: 85,
-        branches: 72,
-        functions: 85,
-        lines: 87,
+        statements: 88,
+        branches: 76,
+        functions: 88,
+        lines: 89,
       },
     },
   },

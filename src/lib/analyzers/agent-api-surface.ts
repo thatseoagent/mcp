@@ -245,8 +245,8 @@ function operationsOf(doc: Record<string, unknown>): Operation[] {
  * probe it would report "we could not see your errors" about every API that
  * separates its hosts, which is most of them. Following it anywhere at all would
  * mean a spec on example.com could aim our request at a third party. eTLD+1 is
- * the line that admits the first and refuses the second, and it is the same unit
- * the Site Limit already counts (`lib/utils/registrable-domain.ts`).
+ * the line that admits the first and refuses the second, and it is the unit
+ * `sites.registrableDomain` already stores.
  */
 function sameSite(a: string, b: string): boolean {
   const domainA = getDomain(new URL(a).hostname);

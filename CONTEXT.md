@@ -70,8 +70,35 @@ _Avoid_: site (for the Google-side name), GSC site
 Terms inherited from the web app that have **no** meaning here. Their presence in
 new code is a bug, not a naming preference.
 
-**User**, **Account**, **Plan**, **Effective Plan**, **Subscription**,
-**Comped Account**, **Trial**, **Site Limit**, **Active Site** (activation only ever
-existed to enforce the Site Limit), **API Key** (as an identity), **MCP Admission**,
+**User**, **Account**, **API Key** (as an identity), **MCP Admission**,
 **Admitted Session**, **Guarded MCP Server**, **Audit Log**, **Waitlist**,
 **Slack Connection**, **Shared Report**.
+
+### There is nothing to buy, so nothing is rationed
+
+The web app sold access, and a whole vocabulary served that: **Plan**,
+**Effective Plan**, **Subscription**, **Comped Account**, **Trial**, **Site
+Limit**, **Active Site**. None of it survives, and the point is stronger than
+"those words are retired": **no Tool here reports less than its whole answer
+because of who is asking or how much they have asked for.** Every Tool is
+available to every Operator, every registered Site is readable by every Tool,
+and nothing counts Sites, calls or runs in order to decide what to return.
+
+A Tool can still be unable to answer — no credentials, no Property Access, no
+database — and the rule above says what it does then. That is a missing input,
+not a ration, and the two must never be phrased alike.
+
+The caps that do exist are none of this, and a reader meeting one should know
+which kind it is:
+
+- **Politeness.** `crawl-pacing.ts` spaces requests to one origin and `robots-gate.ts`
+  obeys robots.txt, because every fetch carries `ThatSEOAgentBot` and an
+  unthrottled loop is us hammering a stranger's server under our own name.
+- **Somebody else's ceiling.** Google rations URL inspections per property per day
+  and caps a Search Analytics request at 25,000 rows. Asking for more does not
+  get more.
+- **Reading length.** `crawl_site` walks 25 pages by default and 50 at most, and
+  `hreflang` checks 25 alternates: each one is a stated reading depth a caller can
+  see, not an allowance.
+- **Print length.** `render-list.ts` truncates a long list and says how many rows
+  it withheld. The data was read; the lines were not printed.

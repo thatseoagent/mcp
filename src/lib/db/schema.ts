@@ -42,9 +42,9 @@ const id = () =>
  * A domain the Operator analyses.
  *
  * No owner, and no limit on how many. The case this is built for is a freelance
- * SEO holding a dozen clients, so the retired `locked` flag is gone with the
- * Site Limit it enforced — activation only ever existed to ration Sites against
- * a plan, and there is no plan.
+ * SEO holding a dozen clients, so there is no column here that could ration
+ * them: no owner, no counter, and no flag that switches a Site off. Every row is
+ * readable by every Tool.
  */
 export const sites = sqliteTable(
   "sites",
@@ -55,10 +55,10 @@ export const sites = sqliteTable(
     /**
      * eTLD+1 of `domain`, computed with the public suffix list.
      *
-     * Kept although the Site Limit it used to serve is gone, because it is still
-     * the honest answer to "are these the same site?" — useful for grouping a
-     * report and for telling an Operator that `www.foo.com` and `foo.com` are
-     * one property with two spellings.
+     * Stored because it is the honest answer to "are these the same site?" —
+     * useful for grouping a report and for telling an Operator that
+     * `www.foo.com` and `foo.com` are one property with two spellings. Nothing
+     * groups by it in order to ration anything.
      */
     registrableDomain: text("registrable_domain").notNull(),
     /**

@@ -4,10 +4,11 @@
  * ── No owner, and no limit ──
  *
  * `CONTEXT.md`: "A Site has no owner: every Site in the database belongs to the
- * Operator running the server." There is no `user_id` in the table and no count
- * anywhere, because the case this is built for is a freelance SEO holding a
- * dozen clients. The retired product's `locked` flag went with the Site Limit it
- * enforced — activation only ever existed to ration Sites against a plan.
+ * Operator running the server." There is no `user_id` in the table, and **no
+ * code anywhere counts Sites** — the case this is built for is a freelance SEO
+ * holding a dozen clients, and a count is the first thing a limit would need.
+ * There is no flag that switches a Site off either: every registered Site is
+ * readable by every Tool, always.
  *
  * ── What is stored, and what is emphatically not ──
  *

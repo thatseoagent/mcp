@@ -1,0 +1,44 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.11/schema.json",
+  "files": { "includes": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.mjs"] },
+  // Linter only. This codebase's formatting carries decisions — the wrapping of
+  // a comment that argues for a threshold, the alignment of a fixture table —
+  // and a formatter run over 283 files would rewrite all of it in one commit
+  // nobody could review. The rules below are the ones that find defects.
+  "formatter": { "enabled": false },
+  "assist": { "actions": { "source": { "organizeImports": "off" } } },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      // Stylistic, and this repo's style is argued rather than accidental.
+      // Enforcing them would touch ~40 files and catch nothing.
+      "style": {
+        "noNonNullAssertion": "off",
+        "useTemplate": "off",
+        "useImportType": "off"
+      },
+      "complexity": {
+        "noForEach": "off",
+        "useLiteralKeys": "off"
+      },
+      "suspicious": {
+        "noExplicitAny": "off",
+        // Every instance is `while ((match = re.exec(text)) !== null)`, which is
+        // how you walk a global regex. The rule cannot tell that from a typo.
+        "noAssignInExpressions": "off",
+        // `forEach((value) => set.add(value))` — the callback's return is a Set
+        // nobody reads, not a predicate being dropped.
+        "useIterableCallbackReturn": "off",
+        // `isNaN(date.getTime())` on a number. The coercion the rule exists to
+        // warn about cannot happen there.
+        "noGlobalIsNan": "off",
+        // Two documentation strings that name a `${VARIABLE}` on purpose.
+        "noTemplateCurlyInString": "off",
+        // `scripts/build.mjs` strips the bundler's ANSI escapes, which means
+        // matching a control character deliberately.
+        "noControlCharactersInRegex": "off"
+      }
+    }
+  }
+}

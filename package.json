@@ -13,6 +13,7 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "pnpm build && vitest run --config vitest.e2e.config.mts",
     "typecheck": "tsc --noEmit",
+    "lint": "biome lint .",
     "build:raw": "xmcp build",
     "db:generate": "drizzle-kit generate",
     "login": "node dist/login.cjs",
@@ -30,6 +31,7 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.11",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.4.0",
     "@vitest/coverage-v8": "^4.1.11",

@@ -8,7 +8,6 @@ import { DB_PATH_VARIABLE } from "@/lib/db/database";
 import { InvalidInputError } from "@/lib/invalid-input-error";
 import { useTempDatabase } from "../helpers/temp-database";
 import { serve } from "../helpers/serve";
-import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 const originalFetch = globalThis.fetch;
 let temp: ReturnType<typeof useTempDatabase> | null = null;

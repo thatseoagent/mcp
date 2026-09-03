@@ -30,7 +30,6 @@
 
 import { fetchAnyStatus } from "./http-client";
 import { RobotsDisallowedError } from "./robots-gate";
-import { PAGE_AUDIT_USER_AGENT } from "./bot-identity";
 
 /**
  * How many declared links are probed in one run.
@@ -182,7 +181,7 @@ async function readHomepage(origin: string): Promise<string | null> {
   }
 }
 
-async function probeLink(url: string, origin: string, homepage: string | null): Promise<LinkProbe> {
+async function probeLink(url: string, _origin: string, homepage: string | null): Promise<LinkProbe> {
   try {
     const { response, finalUrl } = await fetchAnyStatus(url, { timeout: LINK_TIMEOUT });
 

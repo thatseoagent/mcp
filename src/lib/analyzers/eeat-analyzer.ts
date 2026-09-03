@@ -307,7 +307,7 @@ function mentionsAny(text: string, phrases: readonly string[]): boolean {
 /**
  * Analyze Experience signals (25 points).
  */
-function analyzeExperience($: CheerioAPI, text: PageText, readable: ReadableDocument): EeatCategoryScore {
+function analyzeExperience(_$: CheerioAPI, text: PageText, readable: ReadableDocument): EeatCategoryScore {
   const indicators: EeatIndicator[] = [];
 
   // First-person narrative (5 points)

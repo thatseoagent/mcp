@@ -645,7 +645,7 @@ export function scoreL4(
   });
 
   // 3. Definition patterns present (6 pts)
-  const hasDefinitions = patterns !== null && patterns.definition.test(cleanText);
+  const hasDefinitions = patterns?.definition.test(cleanText) ?? false;
   checks.push({
     name: "Definition patterns present (X is a…, X es un…, refers to, significa)", source: RESEARCH.geoTactics,
     passed: hasDefinitions,
@@ -654,7 +654,7 @@ export function scoreL4(
     detail: languageUnreadable
       ? unreadableDetail
       : hasDefinitions
-      ? patterns !== null && patterns.definition.test(firstThirtyPct)
+      ? (patterns?.definition.test(firstThirtyPct) ?? false)
         ? "Definitions found in first 30% — excellent citation anchor for AI engines"
         : "Definitions found but not in first 30% — move key definitional sentences to the top"
       : "No definition patterns. Add sentences of the form 'X is a…', which state the subject outright instead of assuming it",

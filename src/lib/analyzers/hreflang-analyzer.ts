@@ -9,7 +9,6 @@ import { XMLParser } from "fast-xml-parser";
 import { type Result, success, failure } from "../type-guards";
 import { notScored } from "./scored-checks";
 import { fetchAnyStatus, fetchWithTimeout, validateUrl } from "../http-client";
-import { PAGE_AUDIT_USER_AGENT } from "../bot-identity";
 import {
   validateLanguageCode,
   regionCodeMistakenForLanguage,
@@ -231,7 +230,7 @@ function extractHreflangFromHeaders(
 
   // Parse Link header (can contain multiple links separated by commas)
   const linkRegex = /<([^>]+)>;\s*rel="alternate";\s*hreflang="([^"]+)"/g;
-  let match;
+  let match: RegExpExecArray | null;
 
   while ((match = linkRegex.exec(linkHeader)) !== null) {
     const href = match[1];
@@ -267,7 +266,7 @@ async function extractHreflangFromSitemap(
     const parsed = parser.parse(xml);
 
     // Navigate to urlset
-    if (!parsed.urlset || !parsed.urlset.url) {
+    if (!parsed.urlset?.url) {
       return tags;
     }
 

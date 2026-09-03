@@ -11,9 +11,8 @@
 
 import { XMLParser } from 'fast-xml-parser';
 import { logError } from './log';
-import { gunzipSync } from 'zlib';
+import { gunzipSync } from 'node:zlib';
 import { fetchAnyStatus } from './http-client';
-import { PAGE_AUDIT_USER_AGENT } from './bot-identity';
 
 interface SitemapUrl {
   loc: string;

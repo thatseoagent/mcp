@@ -8,7 +8,6 @@
  */
 import { parseSitemap } from "./sitemap-parser";
 import { fetchAnyStatus } from "./http-client";
-import { PAGE_AUDIT_USER_AGENT } from "./bot-identity";
 import { readWellKnown, type WellKnownRead } from "./well-known";
 import { extractPageMeta, fetchPagesMeta, PAGE_META_LIMIT, type PageMeta } from "./page-meta";
 

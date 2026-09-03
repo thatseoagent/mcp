@@ -135,7 +135,11 @@ describe("crawl_site", () => {
 
     const calls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls;
     const pageCall = calls.find((call) => String(call[0]) === "https://example.com/");
-    const headers = (pageCall?.[1] as RequestInit).headers as Record<string, string>;
+    // Asserted rather than assumed: reading `.headers` off an absent call threw a
+    // TypeError, which reports "cannot read properties of undefined" about a
+    // crawler that did not fetch the page at all.
+    expect(pageCall, "the crawler never fetched the root page").toBeDefined();
+    const headers = (pageCall![1] as RequestInit).headers as Record<string, string>;
     expect(headers["User-Agent"]).toBe(CRAWLER_USER_AGENT);
     expect(headers["User-Agent"]).toContain("github.com/thatseoagent/mcp");
   });

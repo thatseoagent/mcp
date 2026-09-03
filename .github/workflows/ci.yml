@@ -37,6 +37,11 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      # Biome, linting only — see `biome.jsonc` for why the formatter is off and
+      # which rules are disabled. It runs in this job because it answers the
+      # same question `tsc` does: is this code well-formed, before anyone asks
+      # what it does.
+      - run: pnpm lint
 
   test:
     runs-on: ubuntu-latest

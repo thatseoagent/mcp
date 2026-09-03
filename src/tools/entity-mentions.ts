@@ -6,7 +6,6 @@ import { publishingEntity, isDeclared } from "../lib/analyzers/publishing-entity
 import { pageLanguage } from "../lib/analyzers/page-language";
 import { fetchHtml } from "../lib/http-client";
 import { PageFetchError } from "../lib/page-fetch-error";
-import { PAGE_AUDIT_USER_AGENT } from "../lib/bot-identity";
 import { readWellKnown } from "../lib/well-known";
 import { lookupWikidata } from "../lib/wikidata-check";
 import { defineCachedTool } from "../lib/define-tool";

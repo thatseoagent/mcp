@@ -1,4 +1,4 @@
-import { z } from "zod";
+
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
 import { ga4Property, ga4PropertySchema } from "../lib/google/ga4-tool-shape";

@@ -60,7 +60,7 @@ function detectHowToMismatch(html: string, schemas: readonly unknown[]): SchemaM
   if (!schemas.some((s) => hasType(s, "HowTo"))) return null;
 
   const hasOrderedList = /<ol[^>]*>[\s\S]*?<li[^>]*>/i.test(html);
-  const hasStepHeadings = /<h[1-6][^>]*>\s*(?:step\s*\d|paso\s*\d|\d[\.\)])/i.test(html);
+  const hasStepHeadings = /<h[1-6][^>]*>\s*(?:step\s*\d|paso\s*\d|\d[.)])/i.test(html);
   const hasStepContainer = /(?:class|id)=["'][^"']*step[^"']*["']/i.test(html);
 
   const visibleSteps = hasOrderedList || hasStepHeadings || hasStepContainer;
@@ -89,7 +89,7 @@ function detectProductMismatch(html: string, schemas: readonly unknown[]): Schem
   const hasSku = !!(product.sku || product.gtin || product.gtin13 || product.mpn);
 
   // Visible buy/add-to-cart signal — proxy for "actually a product page"
-  const hasPriceText = /\$[\d,]+(\.\d{2})?|[€£¥]\s?[\d,]+|\d+[\.,]\d{2}\s?(?:USD|EUR|GBP|MXN)/i.test(html);
+  const hasPriceText = /\$[\d,]+(\.\d{2})?|[€£¥]\s?[\d,]+|\d+[.,]\d{2}\s?(?:USD|EUR|GBP|MXN)/i.test(html);
   const hasBuyButton = /<(?:button|a)[^>]*(?:add[\s-]to[\s-]cart|buy[\s-]now|comprar|añadir|checkout)/i.test(html);
 
   const schemaComplete = hasOffers && hasPriceField && hasSku;

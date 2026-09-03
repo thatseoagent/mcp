@@ -862,7 +862,7 @@ export function scoreTechnical(page: ParsedPage, httpStatus: number): GeoCategor
 }
 
 export function scoreContentCitability(page: ParsedPage, pageType: PageKind): GeoCategory {
-  const { html, readable } = page;
+  const { readable } = page;
   const checks: GeoCheck[] = [];
 
   const textContent = readable.mainContent();

@@ -494,8 +494,8 @@ function checkAuthChain(
     );
   }
 
-  if (!asProbe || !asProbe.ok || asProbe.status !== 200) {
-    const what = !asProbe || !asProbe.ok ? "could not be fetched" : `answered HTTP ${asProbe.status}`;
+  if (!asProbe?.ok || asProbe.status !== 200) {
+    const what = !asProbe?.ok ? "could not be fetched" : `answered HTTP ${asProbe.status}`;
     return malformed(base, `The walk stops at the authorization server: ${asUrl} ${what}. Each document before it is valid and the path is still broken.`);
   }
 

@@ -2,7 +2,6 @@ import { fetchAnyStatus } from "./http-client";
 import { RobotsDisallowedError } from "./robots-gate";
 import { CrawlBudgetError } from "./crawl-pacing";
 import { describeHttpStatus } from "./describe-http-status";
-import { PAGE_AUDIT_USER_AGENT } from "./bot-identity";
 import { createSingleFlightCache } from "./single-flight";
 
 /**

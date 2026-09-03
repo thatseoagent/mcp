@@ -181,7 +181,11 @@ describe("GEO recommendation keys point at labels that exist", () => {
     ];
 
     const seen = new Set<string>();
-    const dupes = resolved.filter((k) => (seen.has(k) ? true : (seen.add(k), false)));
+    const dupes = resolved.filter((key) => {
+      if (seen.has(key)) return true;
+      seen.add(key);
+      return false;
+    });
 
     expect(
       dupes,

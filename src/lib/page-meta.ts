@@ -30,7 +30,6 @@
  */
 
 import { fetchAnyStatus } from "./http-client";
-import { PAGE_AUDIT_USER_AGENT } from "./bot-identity";
 
 /** One page, and whatever of its own metadata we could read. Both fields are
  *  optional because a page that answers without a title is a normal outcome, not

@@ -7,10 +7,8 @@ import {
   scoreGeo,
 } from "../lib/analyzers/geo-analyzer";
 import { readContentAge } from "../lib/analyzers/content-age";
-import { notScored } from "../lib/analyzers/scored-checks";
 import { publishingEntity } from "../lib/analyzers/publishing-entity";
 import { readPage } from "../lib/analyzers/parsed-page";
-import { getSchemaTypes } from "../lib/analyzers/json-ld-graph";
 import { checkTechnicalRequirements } from "../lib/analyzers/technical-requirements";
 import { fetchAuditablePage, refusalText } from "../lib/page-reachability";
 import { readWellKnown, answered, textOrEmpty, type WellKnownRead } from "../lib/well-known";
@@ -205,7 +203,6 @@ export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_geo_score", do
     kgResult.status === "fulfilled"
       ? kgResult.value
       : { found: null, reason: "the Knowledge Graph lookup did not complete" };
-  const inKg = kgLookup.found;
   // llms.txt is the exception, and legitimately: its check is worth 0 points and
   // says so, so there is no score for a failed read to distort.
   const llmsTxtExists =

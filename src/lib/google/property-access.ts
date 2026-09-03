@@ -29,7 +29,7 @@
  * has no record of this Operator holding it.
  */
 import { matchSiteUrl } from "./property";
-import type { GscProperty, SearchConsoleReader } from "./reader";
+import type { GscProperty } from "./reader";
 
 export type AccessState = "granted" | "unverified" | "absent";
 

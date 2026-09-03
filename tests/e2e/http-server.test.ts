@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, } from "node:fs";
 import path from "node:path";
 
 /**
@@ -54,7 +53,7 @@ async function rpc(method: string, params: unknown = {}) {
 
   try {
     return { status: response.status, ...JSON.parse(data ?? text) };
-  } catch (error) {
+  } catch (_error) {
     // Surfacing the body beats `undefined is not an object` three lines later in
     // whichever assertion happened to read `.result` first.
     throw new Error(`${method}: could not parse response (${response.status}): ${text.slice(0, 400)}`);

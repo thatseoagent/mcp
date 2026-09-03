@@ -4,7 +4,7 @@ import { auditAgentDiscovery } from "../lib/analyzers/agent-discovery";
 import { checksToFix, renderCheckSection } from "../lib/render-scored-checks";
 import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
-import { toolFailure } from "../lib/tool-failure";
+import { unwrap } from "../lib/type-guards";
 import { toolText } from "../lib/tool-result";
 
 export const schema = {
@@ -36,13 +36,7 @@ export const metadata: ToolMetadata = {
 const FAILURE_CONTEXT = "audit the agent-discovery artifacts for this URL";
 
 export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_agent_discovery", domainOf: domainFromUrl }, async ({ url }: InferSchema<typeof schema>) => {
-  const result = await auditAgentDiscovery(url);
-
-  if (!result.success) {
-    return toolFailure(result.error, FAILURE_CONTEXT);
-  }
-
-  const data = result.data;
+  const data = unwrap(await auditAgentDiscovery(url));
   const lines: string[] = [];
 
   lines.push("=== AGENT DISCOVERY ARTIFACTS ===");

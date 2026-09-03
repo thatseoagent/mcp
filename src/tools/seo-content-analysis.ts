@@ -5,7 +5,7 @@ import { fetchHtml } from "../lib/http-client";
 import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
 import { toolError, toolText } from "../lib/tool-result";
-import { toolFailure } from "../lib/tool-failure";
+import { unwrap } from "../lib/type-guards";
 
 export const schema = {
   ...refreshable,
@@ -139,13 +139,9 @@ function formatHeadingOutline(nodes: HeadingNode[], lines: string[], depth: numb
 export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_content_analysis", domainOf: domainFromUrl }, async ({ url }: InferSchema<typeof schema>) => {
   const [result, rawHtml] = await Promise.all([analyzeContent(url), fetchHtmlRaw(url)]);
 
-  // The analyzer does not throw; it returns a failed Result. Routing that branch
-  // through the same seam as a `catch` is the point of `tool-failure`.
-  if (!result.success) {
-    return toolFailure(result.error, FAILURE_CONTEXT);
-  }
-
-  const data = result.data;
+  // The analyzer does not throw; it returns a failed Result. `unwrap` routes that
+  // branch through the same seam as a `catch`, which is the point of `tool-failure`.
+  const data = unwrap(result);
 
   // ── A page with nothing in it is not a measurement ─────────────────────────
   //

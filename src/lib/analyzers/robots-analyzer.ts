@@ -3,7 +3,7 @@
  * Parses robots.txt files, detects AI crawler blocks, and validates syntax.
  */
 
-import { type Result, success, failure } from "../result";
+import { type Result, success, failure } from "../type-guards";
 import { fetchWithTimeout, validateUrl } from "../http-client";
 import { parseRobots, type RobotsRuleset } from "./robots-ruleset";
 import { PageFetchError } from "../page-fetch-error";

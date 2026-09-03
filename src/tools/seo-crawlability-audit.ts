@@ -3,7 +3,7 @@ import { type ToolMetadata, type InferSchema } from "xmcp";
 import { auditCrawlability } from "../lib/analyzers/crawlability-analyzer";
 import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
-import { toolFailure } from "../lib/tool-failure";
+import { unwrap } from "../lib/type-guards";
 import { toolText } from "../lib/tool-result";
 
 export const schema = {
@@ -31,15 +31,7 @@ export const metadata: ToolMetadata = {
 const FAILURE_CONTEXT = "audit crawlability for this URL";
 
 export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_crawlability_audit", domainOf: domainFromUrl }, async ({ url }: InferSchema<typeof schema>) => {
-  const result = await auditCrawlability(url);
-
-  // The analyzers do not throw; they return a failed Result. Routing that branch
-  // through the same seam as a `catch` is the whole point of `tool-failure`.
-  if (!result.success) {
-    return toolFailure(result.error, FAILURE_CONTEXT);
-  }
-
-  const data = result.data;
+  const data = unwrap(await auditCrawlability(url));
   const lines: string[] = [];
 
   const criticalCount = data.issues.filter((i) => i.type === "critical").length;

@@ -232,7 +232,38 @@ export function failure<E = Error>(error: E): Result<never, E> {
 
 /**
  * Unwrap a Result, throwing if it's an error.
- * Use when you want to convert Result back to exception-based flow.
+ *
+ * ── Why a Tool should reach for this rather than branch ──
+ *
+ * The docstring here used to say "use when you want to convert Result back to
+ * exception-based flow", which is true and gives nobody a reason to. So nine
+ * Tools wrote the branch out instead, byte-identically:
+ *
+ *     const result = await analyzeX(url);
+ *     if (!result.success) return toolFailure(result.error, FAILURE_CONTEXT);
+ *     const data = result.data;
+ *
+ * The reason to prefer this is `tool-failure.ts`: *"Every failure path routes
+ * here, not only the `catch`. The analyzers do not throw — they return a failed
+ * Result — and a handler that renders that branch itself has opted out of the
+ * rule, which is the gap to watch for when porting a Tool."* Nine handlers
+ * carried that obligation by hand, and the comment explaining it was verbatim in
+ * three of them, a variant in one, and absent in five — the drift
+ * `render-check.ts` was written to stop, one layer up.
+ *
+ * Throwing is not a fallback here, it is the delivery mechanism: `defineTool`
+ * catches and hands the error to `describeToolFailure`, which is the one place
+ * allowed to decide whether a message was authored by us. So the authorship rule
+ * is applied once instead of trusted nine times, and it applies identically to a
+ * failure that was thrown and one that was reported.
+ *
+ * ── When a Tool should NOT use this ──
+ *
+ * When the failure is not the end of the Tool. `run_site_audit` and
+ * `run_page_audit` read the failed branch on purpose — they print "could not be
+ * read on this run" and record `null` rather than refusing the whole report —
+ * and that is the real adapter of this seam. Two Tools genuinely branch; nine
+ * were converting a value straight back into the exception path.
  */
 export function unwrap<T, E>(result: Result<T, E>): T {
   if (result.success) {

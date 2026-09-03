@@ -4,7 +4,7 @@ import { validateHreflang } from "../lib/analyzers/hreflang-analyzer";
 import { getLanguageName } from "../lib/language-validator";
 import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
-import { toolFailure } from "../lib/tool-failure";
+import { unwrap } from "../lib/type-guards";
 import { toolText } from "../lib/tool-result";
 
 export const schema = {
@@ -55,17 +55,11 @@ export default defineCachedTool(
     checkAccessibility,
     sitemapUrl,
   }: InferSchema<typeof schema>) => {
-    const result = await validateHreflang(url, {
+    const data = unwrap(await validateHreflang(url, {
       checkBidirectional,
       checkAccessibility,
       sitemapUrl,
-    });
-
-    if (!result.success) {
-      return toolFailure(result.error, FAILURE_CONTEXT);
-    }
-
-    const data = result.data;
+    }));
     const lines: string[] = [];
 
     lines.push("=== HREFLANG VALIDATION ===");

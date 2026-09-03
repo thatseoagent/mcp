@@ -5,7 +5,7 @@ import { renderVerdict } from "../lib/render-check";
 import { renderCoverage } from "../lib/render-scored-checks";
 import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
-import { toolFailure } from "../lib/tool-failure";
+import { unwrap } from "../lib/type-guards";
 import { toolText } from "../lib/tool-result";
 
 export const schema = {
@@ -33,13 +33,7 @@ export const metadata: ToolMetadata = {
 const FAILURE_CONTEXT = "check the security headers for this URL";
 
 export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_security_headers", domainOf: domainFromUrl }, async ({ url }: InferSchema<typeof schema>) => {
-  const result = await analyzeSecurityHeaders(url);
-
-  if (!result.success) {
-    return toolFailure(result.error, FAILURE_CONTEXT);
-  }
-
-  const data = result.data;
+  const data = unwrap(await analyzeSecurityHeaders(url));
   const lines: string[] = [];
 
   // What this Tool does not do, said before the score rather than after it. The

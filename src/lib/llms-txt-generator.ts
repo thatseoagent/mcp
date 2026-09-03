@@ -113,15 +113,26 @@ export function buildGeneratedTemplate(
   pages: ReadonlyArray<PageMeta>
 ): string {
   let hostname: string;
+  // Normalised once, because the two lines below disagreed about it: the
+  // homepage URL stripped a trailing slash off `origin` while the filter
+  // compared `parsed.origin` — which never has one — against the argument as
+  // given. `buildGeneratedTemplate("https://example.com/", …)` therefore dropped
+  // every page on the site and generated a file containing only the homepage.
+  // The one caller passes `new URL(url).origin`, so this was latent; a
+  // parameter documented as "Site origin, e.g. https://example.com" should not
+  // depend on which of two spellings it arrives in.
+  let base = origin;
   try {
-    hostname = new URL(origin).hostname;
+    const parsed = new URL(origin);
+    hostname = parsed.hostname;
+    base = parsed.origin;
   } catch {
     hostname = origin;
   }
 
   const resolvedTitle = title.trim() || hostname;
   const resolvedDesc = description.trim() || `Content and resources from ${hostname}`;
-  const homepageUrl = origin.replace(/\/$/, "") + "/";
+  const homepageUrl = `${base}/`;
 
   // Categorize & deduplicate — exclude homepage itself
   const seen = new Set<string>();
@@ -129,7 +140,7 @@ export function buildGeneratedTemplate(
     const u = page.url.trim();
     try {
       const parsed = new URL(u);
-      if (parsed.origin !== origin || parsed.pathname === "/" || u === homepageUrl) return false;
+      if (parsed.origin !== base || parsed.pathname === "/" || u === homepageUrl) return false;
     } catch {
       return false;
     }

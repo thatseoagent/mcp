@@ -22,15 +22,38 @@ interface SitemapUrl {
 }
 
 interface SitemapIndex {
-  sitemap: Array<{ loc: string }> | { loc: string };
+  /**
+   * Optional, because an empty index is a valid document.
+   *
+   * `<sitemapindex xmlns="…"></sitemapindex>` parses to an object holding only
+   * the namespace attribute, so this key is missing rather than empty — and
+   * wrapping a missing key in an array gave `[undefined]`, one `.loc` away from
+   * a TypeError. See {@link parseSitemapIndex}.
+   */
+  sitemap?: Array<{ loc: string }> | { loc: string };
 }
 
 interface Urlset {
-  url: SitemapUrl[] | SitemapUrl;
+  /** Optional for the same reason. A site with no URLs yet publishes this. */
+  url?: SitemapUrl[] | SitemapUrl;
 }
 
 const MAX_DEPTH = 3;
 const REQUEST_TIMEOUT = 10_000; // 10 seconds
+
+/**
+ * One child, many children, or none, as a list.
+ *
+ * `fast-xml-parser` gives a lone `<url>` as an object and two as an array, which
+ * is why every caller wrapped a non-array in `[value]`. It also gives *no*
+ * children as `undefined` — an empty `<urlset xmlns="…">` parses to an object
+ * holding only the namespace — and `[undefined]` then reached a `.loc`. An empty
+ * sitemap is a valid sitemap, and it read as a crash.
+ */
+function toList<T>(value: T[] | T | undefined): T[] {
+  if (value === undefined || value === null) return [];
+  return Array.isArray(value) ? value : [value];
+}
 
 class SitemapParser {
   private readonly parser: XMLParser;
@@ -94,7 +117,7 @@ class SitemapParser {
     depth: number,
     maxUrls?: number
   ): Promise<string[]> {
-    const sitemaps = Array.isArray(index.sitemap) ? index.sitemap : [index.sitemap];
+    const sitemaps = toList(index.sitemap);
 
     const allUrls: string[] = [];
 
@@ -102,16 +125,25 @@ class SitemapParser {
       if (maxUrls && this.seenUrls.size >= maxUrls) {
         break;
       }
+      if (typeof sitemap?.loc !== "string") continue;
 
-      const urls = await this.parseRecursive(sitemap.loc, depth + 1, maxUrls);
-      allUrls.push(...urls);
+      // One child at a time, and a child that cannot be read loses only itself.
+      // `parseRecursive` throws, so a single 404 among forty children used to
+      // fail the whole index — and the one caller turns a throw into `[]`, so a
+      // site whose fortieth sitemap had moved got an llms.txt built from none of
+      // the other thirty-nine. Google skips a bad child and reads the rest.
+      try {
+        allUrls.push(...(await this.parseRecursive(sitemap.loc, depth + 1, maxUrls)));
+      } catch (error) {
+        logError(`read the child sitemap at ${sitemap.loc}`, error);
+      }
     }
 
     return allUrls;
   }
 
   private parseUrlset(urlset: Urlset, maxUrls?: number): string[] {
-    const urls = Array.isArray(urlset.url) ? urlset.url : [urlset.url];
+    const urls = toList(urlset.url);
 
     const extracted: string[] = [];
 
@@ -120,7 +152,7 @@ class SitemapParser {
         break;
       }
 
-      const url = entry.loc;
+      const url = typeof entry?.loc === "string" ? entry.loc : null;
       if (url && !this.seenUrls.has(url)) {
         this.seenUrls.add(url);
         extracted.push(url);

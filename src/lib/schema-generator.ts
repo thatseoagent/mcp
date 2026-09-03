@@ -87,17 +87,8 @@ export function generateSchema<T extends SchemaType>(
   const validation = validateSchema(schema, type);
 
   // Identify missing required fields (for placeholders)
-  const missingFields: string[] = [];
   const jsonString = JSON.stringify(schema, null, 2);
-  const placeholderMatches = jsonString.match(/\[([A-Z_]+)\]/g);
-  if (placeholderMatches) {
-    for (const match of placeholderMatches) {
-      const field = match.slice(1, -1); // Remove brackets
-      if (!missingFields.includes(field)) {
-        missingFields.push(field);
-      }
-    }
-  }
+  const missingFields = placeholdersIn(jsonString);
 
   // Format JSON-LD
   const jsonLd = JSON.stringify(schema, null, 2);
@@ -111,6 +102,29 @@ export function generateSchema<T extends SchemaType>(
     validation,
     missingFields,
   };
+}
+
+/**
+ * Every placeholder left in a generated document, in the order it appears.
+ *
+ * Matched as a whole string *value* rather than as bracketed uppercase text,
+ * because `/\[([A-Z_]+)\]/` missed three of the shapes this file emits:
+ * `[YYYY-MM-DD]` and `[YYYY-MM-DDTHH:MM]` carry digits, a dash and a colon, and
+ * `[ITEM_1_NAME]` and `[INGREDIENT_1]` carry a digit. So a caller who omitted
+ * `startDate` was handed an Event whose `startDate` reads
+ * `"[YYYY-MM-DDTHH:MM]"` under the instruction **"Schema is complete and ready
+ * to use"** — the Tool making a false claim about the document it had just
+ * written.
+ *
+ * A value the caller genuinely supplied as `"[something]"` is reported too, and
+ * that is the right way round: this list is what the Tool tells them to replace.
+ */
+function placeholdersIn(json: string): string[] {
+  const found: string[] = [];
+  for (const [, name] of json.matchAll(/"\[([^"[\]]+)\]"/g)) {
+    if (!found.includes(name)) found.push(name);
+  }
+  return found;
 }
 
 /**

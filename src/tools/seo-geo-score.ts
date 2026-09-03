@@ -28,6 +28,7 @@ import { fetchAuditablePage, refusalText } from "../lib/page-reachability";
 import { readWellKnown, answered, textOrEmpty, type WellKnownRead } from "../lib/well-known";
 import { lookupKnowledgeGraph, type KnowledgeGraphMatch } from "../lib/knowledge-graph";
 import { renderVerdict } from "../lib/render-check";
+import { renderCoverage } from "../lib/render-scored-checks";
 import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
 import { toolError, toolText } from "../lib/tool-result";
@@ -318,21 +319,19 @@ export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_geo_score", do
   lines.push(`Grade: ${grade}`);
   lines.push(`Score: ${score} / ${MAX_SCORE} (${score}%)`);
   lines.push(`Applicable: ${earned} / ${applicableMax} raw points earned`);
-  if (naPoints > 0) {
-    lines.push(
-      `  (${naPoints} pts were N/A for '${pageType}' pages and excluded from scoring — ` +
-        `not comparable to article/product pages)`,
-    );
-  }
-  // Stated separately from the N/A line, and stated at all, because it is the one
-  // qualifier that makes this run incomparable to the last one: nothing about the
-  // site changed, we just failed to look.
-  if (unevaluatedPoints > 0) {
-    lines.push(
-      `  (${unevaluatedPoints} pts could not be evaluated on this run and are excluded — ` +
-        `a retry may change the score without the page changing)`,
-    );
-  }
+  // Both sentences come from `renderCoverage` now. They were written out here, and
+  // in `ai-visibility-score`, and in `seo-llms-txt`, and by the two agent tiers via
+  // the shared renderer — five surfaces, four wordings for two facts. The only
+  // difference that carried meaning was the page type, which is the detail clause.
+  lines.push(
+    ...renderCoverage(
+      { notApplicable: naPoints, notEvaluated: unevaluatedPoints },
+      {
+        subject: "this page",
+        notApplicableDetail: `They were N/A for '${pageType}' pages, so this score is not comparable to a run on a different page type.`,
+      },
+    ),
+  );
   lines.push(`Page Type: ${pageType}`);
   // Said out loud because it changes how the findings below should be read.
   lines.push(`Content Age: ${contentAge.tier} — ${contentAge.evidence}`);

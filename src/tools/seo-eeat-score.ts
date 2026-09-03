@@ -9,6 +9,7 @@ import { readPage } from "../lib/analyzers/parsed-page";
 import { fetchHtml, validateUrl } from "../lib/http-client";
 import { resolveTrustPages, showsTrustPage } from "../lib/site-trust-pages";
 import { renderVerdict } from "../lib/render-check";
+import { renderCoverage } from "../lib/render-scored-checks";
 import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
 import { toolText } from "../lib/tool-result";
@@ -99,6 +100,12 @@ export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_eeat_score", d
   lines.push("=== E-E-A-T SCORE ===");
   lines.push(`Grade: ${data.grade}`);
   lines.push(`Score: ${data.score} / ${data.maxScore} (${Math.round(data.percentage)}%)`);
+  // The denominator here moves. Three trustworthiness indicators ask a question
+  // about the SITE, and a home page that 5xx'd takes 15 of the 100 points out of
+  // both sides — so this line used to read `Score: 61 / 85 (72%)` with nothing
+  // saying where the other 15 went, and a reader comparing two runs could not
+  // tell a page that improved from a run that asked fewer questions. ADR-0003.
+  lines.push(...renderCoverage(data, { subject: "this page" }));
 
   lines.push("\n=== CATEGORY BREAKDOWN ===");
   renderCategory(lines, "EXPERIENCE", data.signals.experience);

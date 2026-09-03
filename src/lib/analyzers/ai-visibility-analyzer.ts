@@ -298,7 +298,7 @@ export function scoreL1(
   kg: EntityLookup,
   vertical: Vertical,
   llmsTxtPresent: boolean,
-): { score: number; max: number; notEvaluated: number; checks: AiVisibilityCheck[] } {
+): { score: number; max: number; notApplicable: number; notEvaluated: number; checks: AiVisibilityCheck[] } {
   const { found: wikidataFound, reason: wikidataReason } = wikidata;
   const { found: kgFound, reason: kgReason } = kg;
   const checks: AiVisibilityCheck[] = [];
@@ -470,12 +470,18 @@ export function scoreL1(
  * `max` rather than the shared type's name because `AiVisibilitySection` has
  * always called it that and every stored audit row uses it.
  */
-function totals(checks: AiVisibilityCheck[]): { score: number; max: number; notEvaluated: number } {
-  const { score, max, notEvaluated } = tally(checks);
-  // `notEvaluated` is carried out of the layer, not swallowed: it is the one figure
-  // that makes this run incomparable to the last one, so the caller has to be able
-  // to say so beside the score.
-  return { score, max, notEvaluated };
+function totals(checks: AiVisibilityCheck[]): {
+  score: number;
+  max: number;
+  notApplicable: number;
+  notEvaluated: number;
+} {
+  const { score, max, notApplicable, notEvaluated } = tally(checks);
+  // Both coverage figures are carried out of the layer, not swallowed. `notEvaluated`
+  // is the one that makes this run incomparable to the last one; `notApplicable` was
+  // being dropped here, so a check that a page kind cannot owe left the fraction and
+  // the caller had no way to name the points it had lost.
+  return { score, max, notApplicable, notEvaluated };
 }
 
 export function analyzeL2(
@@ -569,7 +575,7 @@ export function scoreL4(
     | { status: "unavailable"; blocked: string[]; reason: string },
   freshness: "fresh" | "aging" | "stale" | "unknown",
   pageKind: PageKind,
-): { score: number; max: number; notEvaluated: number; wordCount: number; checks: AiVisibilityCheck[] } {
+): { score: number; max: number; notApplicable: number; notEvaluated: number; wordCount: number; checks: AiVisibilityCheck[] } {
   const { html } = page;
   const checks: AiVisibilityCheck[] = [];
 

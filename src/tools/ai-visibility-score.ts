@@ -36,6 +36,7 @@ import { lookupWikidata } from "../lib/wikidata-check";
 import { lookupKnowledgeGraph } from "../lib/knowledge-graph";
 import { resolveTrustPages, showsTrustPage } from "../lib/site-trust-pages";
 import { renderVerdict } from "../lib/render-check";
+import { renderCoverage } from "../lib/render-scored-checks";
 import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
 import { toolError, toolText } from "../lib/tool-result";
@@ -228,6 +229,7 @@ export default defineCachedTool(FAILURE_CONTEXT, { toolName: "ai_visibility_scor
   // answer.
   const totalMax = l1.max + l4.max;
   const notEvaluated = l1.notEvaluated + l4.notEvaluated;
+  const notApplicable = l1.notApplicable + l4.notApplicable;
   const grade = toGrade(totalScore, totalMax);
   const l1Grade = toGrade(l1.score, l1.max);
   const l4Grade = toGrade(l4.score, l4.max);
@@ -242,13 +244,10 @@ export default defineCachedTool(FAILURE_CONTEXT, { toolName: "ai_visibility_scor
   lines.push(`Score: ${totalScore}/${totalMax} — ${grade}`);
   // Said out loud, because it is the one qualifier that makes this run
   // incomparable to the last one: nothing about the site changed, we just failed to
-  // look. A score that hides it is a number that lies by omission.
-  if (notEvaluated > 0) {
-    lines.push(
-      `Coverage: ${notEvaluated} pts could not be evaluated on this run and are excluded ` +
-        `from both sides — a retry may change the score without the page changing.`,
-    );
-  }
+  // look. A score that hides it is a number that lies by omission. The sentence
+  // itself comes from `renderCoverage`, which is where every scored surface's
+  // version of it lives now.
+  lines.push(...renderCoverage({ notApplicable, notEvaluated }, { subject: "this page" }));
   lines.push(
     `Vertical: ${vertical}  |  Brand: ${orgBrandName}` +
       `${entity ? "" : " (assumed from the domain — the page declares no Organization or Person)"}\n`,

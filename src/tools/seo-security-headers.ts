@@ -2,6 +2,7 @@ import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { analyzeSecurityHeaders } from "../lib/analyzers/security-analyzer";
 import { renderVerdict } from "../lib/render-check";
+import { renderCoverage } from "../lib/render-scored-checks";
 import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
 import { toolFailure } from "../lib/tool-failure";
@@ -51,8 +52,14 @@ export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_security_heade
   lines.push("=== SECURITY SCORE ===");
   lines.push(`Grade: ${data.grade}`);
   lines.push(
-    `Score: ${data.score} / ${data.maxScore} (${Math.round((data.score / data.maxScore) * 100)}%)`,
+    // `maxScore || 1` rather than a bare divide: the denominator is now the sum of
+    // the checks that could be asked, and a transport where none of them can be
+    // would otherwise print `NaN%`.
+    `Score: ${data.score} / ${data.maxScore} (${Math.round((data.score / (data.maxScore || 1)) * 100)}%)`,
   );
+  // An http:// site cannot be asked about HSTS, so 20 of the 94 points leave both
+  // sides and this used to print a score out of 74 with nothing naming the 20.
+  lines.push(...renderCoverage(data, { subject: "this transport" }));
 
   lines.push("");
   lines.push("=== SECURITY HEADERS ===");

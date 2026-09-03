@@ -35,10 +35,16 @@ export interface SecurityCheck {
   /**
    * Why this header has no score, when it has none. See `scored-checks.ts`.
    *
-   * Unset today. The case that needs it is HSTS over plain `http://`, where RFC 6797
-   * forbids the site to send the header and requires the browser to ignore it, and
-   * we charge 20 of 94 points plus a CRITICAL for the refusal — but the checks
-   * cannot see the scheme yet (#337, slice 4).
+   * Set by HSTS over plain `http://`, where RFC 6797 forbids the site to send the
+   * header and requires the browser to ignore it — so charging 20 of 94 points
+   * plus a CRITICAL for the refusal was scoring a site for a question nobody
+   * managed to ask. The scheme arrives as `secureTransport`.
+   *
+   * **A check with a `status` keeps its `maxScore`.** It used to zero both fields
+   * to leave the fraction, which worked — the totals were a `reduce` over them —
+   * but it also destroyed the only record that the check was worth 20, so the
+   * report printed a score out of 74 and could not say what the missing 20 were.
+   * The exclusion is this field's job now, and the totals respect it.
    */
   status?: ScoreStatus;
 }
@@ -48,6 +54,10 @@ export interface SecurityHeadersResult {
   headers: SecurityHeaders;
   score: number;
   maxScore: number;
+  /** Points belonging to headers this transport cannot be asked about. */
+  notApplicable: number;
+  /** Points belonging to headers that could not be evaluated on this run. */
+  notEvaluated: number;
   grade: "A+" | "A" | "B" | "C" | "D" | "F";
   checks: SecurityCheck[];
   recommendations: string[];
@@ -90,9 +100,17 @@ export async function analyzeSecurityHeaders(
   // Perform checks
   const checks = performSecurityChecks(securityHeaders, secureTransport);
 
-  // Calculate total score
-  const score = checks.reduce((sum, check) => sum + check.score, 0);
-  const maxScore = checks.reduce((sum, check) => sum + check.maxScore, 0);
+  // Two `reduce`s became one `tally`, because the arithmetic of a three-state
+  // check is the one thing `scored-checks.ts` exists to own. `SecurityCheck` is
+  // still not a `Scorable` — see its comment — so the field names are mapped
+  // here, at one call site, rather than by rewriting a stored Section shape.
+  const { score, max: maxScore, notApplicable, notEvaluated } = tally(
+    checks.map((check) => ({
+      points: check.maxScore,
+      earned: check.score,
+      status: check.status,
+    })),
+  );
 
   // Calculate grade
   const percentage = maxScore > 0 ? (score / maxScore) * 100 : 0;
@@ -106,6 +124,8 @@ export async function analyzeSecurityHeaders(
     headers: securityHeaders,
     score,
     maxScore,
+    notApplicable,
+    notEvaluated,
     grade,
     checks,
     recommendations,
@@ -198,10 +218,11 @@ function checkHSTS(value: string | null, secureTransport: boolean): SecurityChec
       header: "Strict-Transport-Security",
       present: !!value,
       value,
-      // Out of both sides: the module's total is a reduce over these two fields, so
-      // zeroing them takes the check out of the denominator as well as the score.
+      // `maxScore` stays 20. `status` is what takes the check out of both sides
+      // now, and keeping the ceiling is what lets the report name the 20 points
+      // it set aside. Zeroing them did the arithmetic and lost the fact.
       score: 0,
-      maxScore: 0,
+      maxScore,
       status: "not-applicable",
       recommendation:
         "N/A over plain HTTP: RFC 6797 forbids sending HSTS over an insecure connection and requires browsers to ignore it. Move the site to HTTPS — then this header becomes both possible and important.",

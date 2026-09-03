@@ -3,6 +3,7 @@ import { type ToolMetadata, type InferSchema } from "xmcp";
 import { readWellKnown } from "../lib/well-known";
 import { notScored, tally, type Scorable } from "../lib/analyzers/scored-checks";
 import { auditDeclaredLinks, coverageOf, parseLinks } from "../lib/llms-txt-links";
+import { renderCoverage } from "../lib/render-scored-checks";
 import {
   buildGeneratedTemplate,
   checkLlmsFullTxt,
@@ -376,20 +377,11 @@ export default defineCachedTool(
 
     lines.push("=== COMPLETENESS SCORE ===");
     lines.push(`Score: ${score}/${max}`);
-    // The two states `tally` keeps apart have to stay apart here. A file with no
-    // links takes `not-applicable` — structural, the same answer every run — and
-    // telling that reader "a retry may change the score" blames our network for
-    // their file. Only `notEvaluated` earns that sentence.
-    if (totals.notEvaluated > 0) {
-      lines.push(
-        `Coverage: ${totals.notEvaluated} points could not be evaluated on this run and are excluded from both sides — a retry may change the score without the file changing.`,
-      );
-    }
-    if (totals.notApplicable > 0) {
-      lines.push(
-        `Not applicable: ${totals.notApplicable} points do not apply to this file and are excluded from both sides — not a gap.`,
-      );
-    }
+    // The two states `tally` keeps apart stay apart, and `renderCoverage` is what
+    // keeps them apart for every scored surface: a file with no links takes
+    // `not-applicable` — structural, the same answer every run — and telling that
+    // reader "a retry may change the score" blames our network for their file.
+    lines.push(...renderCoverage(totals, { subject: "this file" }));
     if (linkCoverage) lines.push(`Links: ${linkCoverage}.`);
 
     // Graded against what could actually be asked, not against a fixed 100. A

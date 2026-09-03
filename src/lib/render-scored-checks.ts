@@ -12,6 +12,11 @@
  * differ on purpose — the discovery tier only ever adds, the API tier is not
  * scored at all when a site has no API — and folding them together would be
  * flattening three different claims into one.
+ *
+ * `renderCoverage` is the exception to the "three Tools" in that first line: it
+ * is read by every scored surface, because the sentence it prints is about the
+ * arithmetic in `scored-checks.ts` rather than about agent-readiness. See its own
+ * comment.
  */
 import { earnedBy, type Scorable } from "./analyzers/scored-checks";
 import { renderVerdict } from "./render-check";
@@ -70,23 +75,50 @@ export function checksToFix<T extends Scorable>(checks: readonly T[]): T[] {
  *
  * Both say "excluded from both sides", because that is the fact a reader needs
  * and the one a bare numerator hides. They stay two sentences because they mean
- * different things: `n/a` points are questions this site cannot owe, and
+ * different things: `n/a` points are questions this subject cannot owe, and
  * `not evaluated` points are questions we failed to ask — which is what makes
  * this run incomparable to the last one.
+ *
+ * ── Why this took a `subject` ──
+ *
+ * `Tally` gained its last two fields so a caller could state its coverage
+ * "without walking the list a second time with different rules than `tally`
+ * used". Two of six scoring surfaces then walked nothing at all — `eeat` and
+ * `security` dropped both fields on the floor and printed a score over a
+ * denominator that had silently moved — and three of the remaining four spelled
+ * the qualifier themselves, in three wordings. Reading them side by side, the
+ * only difference that carried meaning was **what** the points fail to apply
+ * to: a page, a file, a site. That one word is a parameter now, and the rest is
+ * one sentence in one place. ADR-0003: a partial result presented as a whole one
+ * is the failure the rule exists to prevent, and a score is a result.
+ *
+ * @param subject what the excluded points do not apply to, as the reader would
+ *                say it: "this page", "this file", "this site".
+ * @param notApplicableDetail an extra clause for the `n/a` sentence, when the
+ *                exclusion is structural in a way worth naming — GEO's page type
+ *                decides which checks a page can owe at all, and a reader who is
+ *                not told which type was assumed cannot check our work.
  */
-export function renderCoverage(totals: {
-  notApplicable: number;
-  notEvaluated: number;
-}): string[] {
+export function renderCoverage(
+  totals: {
+    notApplicable: number;
+    notEvaluated: number;
+  },
+  { subject = "this site", notApplicableDetail }: {
+    subject?: string;
+    notApplicableDetail?: string;
+  } = {},
+): string[] {
   const lines: string[] = [];
   if (totals.notApplicable > 0) {
+    const detail = notApplicableDetail ? ` ${notApplicableDetail}` : "";
     lines.push(
-      `Not applicable: ${totals.notApplicable} pts do not apply to this site and are excluded from both sides of the score — they are not gaps.`,
+      `Not applicable: ${totals.notApplicable} pts do not apply to ${subject} and are excluded from both sides of the score — they are not gaps.${detail}`,
     );
   }
   if (totals.notEvaluated > 0) {
     lines.push(
-      `Coverage: ${totals.notEvaluated} pts could not be evaluated on this run and are excluded from both sides — a retry may change the score without the site changing.`,
+      `Coverage: ${totals.notEvaluated} pts could not be evaluated on this run and are excluded from both sides — a retry may change the score without ${subject} changing.`,
     );
   }
   return lines;

@@ -90,9 +90,21 @@ export interface EeatIndicator extends Scorable {
   earned: number;
 }
 
+/**
+ * One category's arithmetic, coverage included.
+ *
+ * `notApplicable`/`notEvaluated` are here because `tally` produces them and this
+ * shape used to destructure `{ score, max }` and throw them away — so three
+ * trustworthiness indicators worth 15 points could leave the fraction and the
+ * report would show a score out of 85 with nothing saying why.
+ */
 export interface EeatCategoryScore {
   score: number;
   maxScore: number;
+  /** Points belonging to indicators that do not apply to this page. */
+  notApplicable: number;
+  /** Points belonging to indicators that could not be evaluated on this run. */
+  notEvaluated: number;
   indicators: EeatIndicator[];
 }
 
@@ -100,6 +112,10 @@ export interface EeatAnalysisResult {
   url: string;
   score: number;
   maxScore: number;
+  /** Points belonging to indicators that do not apply to this page. */
+  notApplicable: number;
+  /** Points belonging to indicators that could not be evaluated on this run. */
+  notEvaluated: number;
   percentage: number;
   grade: "Excellent" | "Good" | "Fair" | "Poor";
   signals: {
@@ -203,18 +219,17 @@ export function scoreEeat({ page, trustPages }: EeatInput): EeatAnalysisResult {
   const authoritativeness = analyzeAuthoritativeness($, text, pageKind, readable, pageAuthor);
   const trustworthiness = analyzeTrustworthiness($, text, isHttps, pageKind, trustPages);
 
-  // Calculate total score
-  const score =
-    experience.score +
-    expertise.score +
-    authoritativeness.score +
-    trustworthiness.score;
-
-  const maxScore =
-    experience.maxScore +
-    expertise.maxScore +
-    authoritativeness.maxScore +
-    trustworthiness.maxScore;
+  // One walk of one list, which is what `scored-checks.ts` means by "the only way
+  // to get a total". This was two hand-written four-term sums over the categories'
+  // own totals — arithmetic that happens to be associative, so it agreed, but it
+  // agreed only about the two fields it added up. The coverage was not in either
+  // sum and so never reached the report at all.
+  const { score, max: maxScore, notApplicable, notEvaluated } = tally([
+    ...experience.indicators,
+    ...expertise.indicators,
+    ...authoritativeness.indicators,
+    ...trustworthiness.indicators,
+  ]);
 
   const percentage = maxScore > 0 ? (score / maxScore) * 100 : 0;
   const grade = calculateGrade(percentage);
@@ -232,6 +247,8 @@ export function scoreEeat({ page, trustPages }: EeatInput): EeatAnalysisResult {
     url,
     score,
     maxScore,
+    notApplicable,
+    notEvaluated,
     percentage,
     grade,
     signals: {
@@ -394,8 +411,8 @@ function analyzeExperience($: CheerioAPI, text: PageText, readable: ReadableDocu
     earned: earned_points4,
   });
 
-  const { score, max } = tally(indicators);
-  return { score, maxScore: max, indicators };
+  const { score, max, notApplicable, notEvaluated } = tally(indicators);
+  return { score, maxScore: max, notApplicable, notEvaluated, indicators };
 }
 
 /**
@@ -514,8 +531,8 @@ function analyzeExpertise(
     earned: 0,
   });
 
-  const { score, max } = tally(indicators);
-  return { score, maxScore: max, indicators };
+  const { score, max, notApplicable, notEvaluated } = tally(indicators);
+  return { score, maxScore: max, notApplicable, notEvaluated, indicators };
 }
 
 /**
@@ -611,8 +628,8 @@ function analyzeAuthoritativeness(
     earned: earned_points3,
   });
 
-  const { score, max } = tally(indicators);
-  return { score, maxScore: max, indicators };
+  const { score, max, notApplicable, notEvaluated } = tally(indicators);
+  return { score, maxScore: max, notApplicable, notEvaluated, indicators };
 }
 
 /**
@@ -759,8 +776,8 @@ function analyzeTrustworthiness(
     earned: earned_points5,
   });
 
-  const { score, max } = tally(indicators);
-  return { score, maxScore: max, indicators };
+  const { score, max, notApplicable, notEvaluated } = tally(indicators);
+  return { score, maxScore: max, notApplicable, notEvaluated, indicators };
 }
 
 /**

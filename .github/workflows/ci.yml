@@ -1,16 +1,7 @@
-# What has to hold before a change lands.
-#
-# The occasion for writing it: five type errors were committed in one afternoon
-# because `pnpm typecheck` was read after the commit rather than before it. Every
-# step below is a command that already existed and was run when somebody
-# remembered to.
-#
-# Three jobs rather than one, so a failure names itself. `typecheck` and `test`
-# are hermetic — the unit suite runs with `TSA_DB_PATH=off` and a stubbed `fetch`
-# — and `e2e` spawns the built server and fetches a real page over the network,
-# which is a different kind of red: it can fail for a reason that is nobody's
-# change. Keeping it separate means a network blip cannot be mistaken for a
-# broken build, and cannot hide one either.
+# Three jobs so a failure names itself. `typecheck` and `test` are hermetic; the
+# unit suite runs with `TSA_DB_PATH=off` and a stubbed `fetch`. `e2e` spawns the
+# built server and fetches a real page, so it can go red for a reason that is not
+# in anyone's change — keeping it apart means that cannot hide a broken build.
 name: CI
 
 on:
@@ -27,48 +18,41 @@ jobs:
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
-          # `engines.node` in package.json, and the version `better-sqlite3`
-          # prebuilds are resolved against.
+          # `engines.node`, and the version `better-sqlite3` prebuilds resolve
+          # against. pnpm comes from `packageManager` in package.json.
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      # Biome, linting only — see `biome.jsonc` for why the formatter is off and
-      # which rules are disabled. It runs in this job because it answers the
-      # same question `tsc` does: is this code well-formed, before anyone asks
-      # what it does.
       - run: pnpm lint
 
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # With coverage, because the thresholds in `vitest.config.mts` are part of
-      # what has to hold: a module landing with no test at all is the failure
-      # they exist to catch, and it is invisible to a green suite.
+      # With coverage: the thresholds in `vitest.config.mts` catch a module
+      # landing with no test, which is invisible to a green suite.
       - run: pnpm test:coverage
 
   e2e:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Builds first: `pnpm test:e2e` runs `pnpm build`, and the suite asserts
-      # against the artifact rather than the source. A stale `dist/` is why this
-      # suite once appeared to fail six tests that were fine.
+      # Builds first, and asserts against the artifact rather than the source.
       - run: pnpm test:e2e

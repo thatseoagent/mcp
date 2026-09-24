@@ -147,7 +147,7 @@ async function googleTools(): Promise<Tool[]> {
   const tools: Tool[] = [];
 
   for (const file of readdirSync(TOOL_DIRECTORY).filter((name) => name.endsWith(".ts"))) {
-    const module = (await import(`../../../src/tools/${file}`)) as ToolModule;
+    const module = (await import(/* @vite-ignore */ `../../../src/tools/${file}`)) as ToolModule;
     if (!/^(gsc|ga4)_/.test(module.metadata.name)) continue;
 
     const schema = z.object(module.schema ?? {});

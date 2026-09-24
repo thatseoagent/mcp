@@ -143,7 +143,13 @@ export async function withPropertyFallback<T>(
   try {
     return { result: await read(siteUrl), siteUrl };
   } catch (error) {
-    const refused = error instanceof UpstreamApiError && (error.status === 403 || error.status === 401);
+    // Not a refusal about the property when Google said the API is disabled:
+    // the other shape would be refused for the same reason, and the second
+    // request would only delay the sentence that names the fix.
+    const refused =
+      error instanceof UpstreamApiError &&
+      (error.status === 403 || error.status === 401) &&
+      error.refusal === null;
     const alternate = refused ? alternateProperty(siteUrl) : null;
     if (!alternate) throw error;
 

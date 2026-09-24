@@ -11,15 +11,15 @@
  *
  * ── The interface is narrower than the data ──
  *
- * Only `goodUnder` and `poorAbove` have callers, in `pagespeed-insights`. Six
+ * `goodUnder` and `poorAbove` have callers in `pagespeed-insights`; `rateVital`,
+ * `formatVital` and `vitalLabel` in `crux_history`, which reads `rankingSignal`. Six
  * other exports had none: `vitalThreshold`, `RANKING_VITALS`, `goodBelow` and
  * `targetPhrase` were the summary's and the help dialog's phrasings, and both
  * surfaces retired with the web app. Those are gone — a two-line derivation from
  * `limit` costs nothing to write again, and an export nobody calls is an
  * interface every reader has to consider.
  *
- * The *record* stays whole, and `means`, `name`, `failure` and `rankingSignal`
- * are unread today. They are Google's own figures and wordings, revised over
+ * The *record* stays whole, and `means`, `name` and `failure` are unread today. They are Google's own figures and wordings, revised over
  * time, and re-researching them is the expensive part; deleting an accessor is
  * not. See ADR-0005.
  */
@@ -106,4 +106,32 @@ export function poorAbove(key: VitalKey): string {
 export function goodUnder(key: VitalKey): string {
   const t = THRESHOLDS[key];
   return `< ${formatVitalValue(t.limit, t.unit)}`;
+}
+
+export type VitalRating = "good" | "needs improvement" | "poor";
+
+/**
+ * Which of CrUX's three buckets a p75 reading falls in.
+ *
+ * Inclusive at the good ceiling and exclusive at the poor floor, which is how
+ * Google states both: LCP is good "at or below 2.5s" and poor "above 4s". For
+ * `crux_history`, so a series is rated against the same limits `pagespeed_insights`
+ * labels its buckets with.
+ */
+export function rateVital(key: VitalKey, value: number): VitalRating {
+  const t = THRESHOLDS[key];
+  if (value <= t.limit) return "good";
+  if (value > t.poorAbove) return "poor";
+  return "needs improvement";
+}
+
+/** A reading in the unit a reader thinks in, for the Tools that print a series. */
+export function formatVital(key: VitalKey, value: number): string {
+  return formatVitalValue(value, THRESHOLDS[key].unit);
+}
+
+/** The short name — "LCP" — and whether Google ranks on it. */
+export function vitalLabel(key: VitalKey): { label: string; rankingSignal: boolean } {
+  const t = THRESHOLDS[key];
+  return { label: t.label, rankingSignal: t.rankingSignal };
 }

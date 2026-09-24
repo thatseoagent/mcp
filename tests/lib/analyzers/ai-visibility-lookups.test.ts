@@ -88,7 +88,7 @@ describe("robots.txt: the site's answer, our failure, and the difference", () =>
 
   it("does not charge 8 points for a robots.txt we could not read", () => {
     const l4 = scoreL4(page(bare), { status: "unavailable", blocked: [], reason: "robots.txt returned HTTP 503" }, FRESH, "article");
-    const check = find(l4.checks, "AI crawlers allowed");
+    const check = find(l4.checks, "AI search crawlers allowed");
 
     expect(check.status).toBe("not-evaluated");
     expect(check.passed).toBe(false);
@@ -100,19 +100,34 @@ describe("robots.txt: the site's answer, our failure, and the difference", () =>
 
   it("passes on a site that allows every AI crawler", () => {
     const l4 = scoreL4(page(bare), { status: "ok", blocked: [] }, FRESH, "article");
-    const check = find(l4.checks, "AI crawlers allowed");
+    const check = find(l4.checks, "AI search crawlers allowed");
 
     expect(check.status).toBeUndefined();
     expect(check.passed).toBe(true);
   });
 
   it("fails on a site that blocks one", () => {
-    const l4 = scoreL4(page(bare), { status: "blocked", blocked: ["GPTBot"] }, FRESH, "article");
-    const check = find(l4.checks, "AI crawlers allowed");
+    const l4 = scoreL4(page(bare), { status: "blocked", blocked: ["OAI-SearchBot"] }, FRESH, "article");
+    const check = find(l4.checks, "AI search crawlers allowed");
 
     expect(check.status).toBeUndefined();
     expect(check.passed).toBe(false);
-    expect(check.detail).toContain("GPTBot");
+    expect(check.detail).toContain("OAI-SearchBot");
+  });
+
+  it("does not charge a training opt-out as lost visibility", () => {
+    // GPTBot and ClaudeBot collect training data; blocking them leaves ChatGPT and
+    // Claude search free to cite the page. This check cost the full 8 for it.
+    const l4 = scoreL4(
+      page(bare),
+      { status: "ok", blocked: [], trainingBlocked: ["GPTBot", "ClaudeBot"] },
+      FRESH,
+      "article",
+    );
+    const check = find(l4.checks, "AI search crawlers allowed");
+
+    expect(check.passed).toBe(true);
+    expect(check.detail).toContain("GPTBot, ClaudeBot are blocked, which is the training opt-out");
   });
 });
 
@@ -207,18 +222,18 @@ describe("freshness is not asked of a page that is not published on a date", () 
  */
 describe("GEO does not award points for a robots.txt it could not read", () => {
   const html = "<html><head></head><body><h1>Home</h1></body></html>";
-  const BOTS = ["GPTBot", "PerplexityBot", "ClaudeBot", "Google-Extended"];
+  const BOTS = ["OAI-SearchBot", "PerplexityBot", "Claude-SearchBot"];
   type Check = { label: string; points: number; status?: string; passed: boolean; detail?: string };
   const botChecks = (cat: { checks: Check[] }) =>
     cat.checks.filter((c) => BOTS.some((b) => c.label.startsWith(b)));
   // The category also holds a `nosnippet` check (2 pts) read from the HTML and an
   // informational llms.txt check (0 pts). Neither comes from robots.txt, so both stay
-  // scored when the read fails — which is why these assertions are about the four bot
+  // scored when the read fails — which is why these assertions are about the three bot
   // checks' contribution and not about the category total.
   const botPoints = (cat: { checks: Check[] }) =>
     botChecks(cat).reduce((sum, c) => sum + (c.status ? 0 : c.points), 0);
 
-  it("marks all four bot checks unevaluated when the read failed", () => {
+  it("marks all three bot checks unevaluated when the read failed", () => {
     const cat = scoreAiCrawlerAccess(
       { outcome: "unavailable", reason: "/robots.txt returned HTTP 503", status: 503 },
       html,
@@ -226,18 +241,18 @@ describe("GEO does not award points for a robots.txt it could not read", () => {
     );
 
     const bots = botChecks(cat);
-    expect(bots).toHaveLength(4);
+    expect(bots).toHaveLength(3);
     for (const c of bots) {
       expect(c.status, c.label).toBe("not-evaluated");
       expect(c.detail, c.label).toContain("503");
     }
-    // 13 points out of both sides, rather than awarded. The 2 that remain are the
+    // 11 points out of both sides, rather than awarded. The 2 that remain are the
     // HTML-derived `nosnippet` check, which robots.txt has nothing to do with.
     expect(botPoints(cat)).toBe(0);
     expect(cat.maxScore).toBe(2);
   });
 
-  it("still passes all four when the site simply has no robots.txt", () => {
+  it("still passes all three when the site simply has no robots.txt", () => {
     // 404 is a definite answer: no file, no rules, every crawler allowed. This is the
     // case the old code got right by accident and now gets right on purpose.
     const cat = scoreAiCrawlerAccess({ outcome: "absent", status: 404 }, html, false);
@@ -247,20 +262,39 @@ describe("GEO does not award points for a robots.txt it could not read", () => {
       expect(c.status, c.label).toBeUndefined();
       expect(c.passed, c.label).toBe(true);
     }
-    expect(botPoints(cat)).toBe(13);
-    expect(cat.score).toBe(15); // 13 bots + 2 nosnippet
+    expect(botPoints(cat)).toBe(11);
+    expect(cat.score).toBe(13); // 11 bots + 2 nosnippet
   });
 
   it("still blocks when robots.txt actually blocks", () => {
     const cat = scoreAiCrawlerAccess(
-      { outcome: "found", text: "User-agent: GPTBot\nDisallow: /", status: 200 },
+      { outcome: "found", text: "User-agent: OAI-SearchBot\nDisallow: /", status: 200 },
       html,
       false,
     );
 
-    const gpt = cat.checks.find((c) => c.label.startsWith("GPTBot"))!;
-    expect(gpt.status).toBeUndefined();
-    expect(gpt.passed).toBe(false);
+    const search = cat.checks.find((c) => c.label.startsWith("OAI-SearchBot"))!;
+    expect(search.status).toBeUndefined();
+    expect(search.passed).toBe(false);
+  });
+
+  it("costs nothing for blocking the training crawlers", () => {
+    // The case the old four got backwards: a training opt-out cost 8 of 13, while
+    // OAI-SearchBot and Claude-SearchBot were not asked about at all.
+    const cat = scoreAiCrawlerAccess(
+      {
+        outcome: "found",
+        text: "User-agent: GPTBot\nUser-agent: ClaudeBot\nUser-agent: Google-Extended\nDisallow: /",
+        status: 200,
+      },
+      html,
+      false,
+    );
+
+    expect(botPoints(cat)).toBe(11);
+    const training = cat.checks.find((c) => c.label.startsWith("Training crawlers"))!;
+    expect(training.points).toBe(0);
+    expect(training.detail).toContain("GPTBot, ClaudeBot, Google-Extended blocked: the training opt-out");
   });
 });
 

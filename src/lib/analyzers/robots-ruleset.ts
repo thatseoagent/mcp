@@ -36,9 +36,39 @@ export interface RobotsRule {
   pattern: string;
 }
 
+/**
+ * The three categories a `Content-Signal:` line can state a preference about.
+ *
+ * From the Content Signals Policy (contentsignals.org): `search` is building a
+ * search index and showing links and short excerpts; `ai-input` is feeding the
+ * content to a model at answer time — retrieval, grounding, AI-generated search
+ * answers; `ai-train` is training or fine-tuning a model on it.
+ */
+export const USAGE_CATEGORIES = ["search", "ai-input", "ai-train"] as const;
+export type UsageCategory = (typeof USAGE_CATEGORIES)[number];
+
+/**
+ * What a group's `Content-Signal:` lines say, category by category.
+ *
+ * A category the file does not mention is **absent**, not `"no"`: the policy is
+ * explicit that an unstated signal neither grants nor withholds anything, and
+ * reading silence as a refusal would report a preference nobody stated.
+ *
+ * Named for what they are — usage preferences — rather than "content signals",
+ * because **Content Signal** already means something else here (`CONTEXT.md`: a
+ * phrasing in a page's copy that answer engines read).
+ */
+export type UsagePreferences = Partial<Record<UsageCategory, "yes" | "no">>;
+
 export interface RobotsGroup {
   userAgent: string;
   rules: RobotsRule[];
+  /**
+   * Optional so a group built by hand — every test's — needs no empty object.
+   * The parser always sets it, shared between consecutive User-agent lines the
+   * same way `rules` is.
+   */
+  usagePreferences?: UsagePreferences;
 }
 
 export interface RobotsIssue {
@@ -120,11 +150,16 @@ export function groupFor(groups: RobotsGroup[], userAgent: string): RobotsGroup 
 
   if (bestAgent === null) return null;
 
-  const rules = groups
-    .filter((group) => group.userAgent.toLowerCase() === bestAgent)
-    .flatMap((group) => group.rules);
+  const chosen = groups.filter((group) => group.userAgent.toLowerCase() === bestAgent);
+  const rules = chosen.flatMap((group) => group.rules);
+  // Merged the way the rules are, and for the same reason: a file that addresses
+  // one crawler in two blocks has said one thing to it, not two.
+  const usagePreferences: UsagePreferences = Object.assign(
+    {},
+    ...chosen.map((group) => group.usagePreferences ?? {}),
+  );
 
-  return { userAgent: bestAgent, rules };
+  return { userAgent: bestAgent, rules, usagePreferences };
 }
 
 /**
@@ -186,6 +221,15 @@ export interface RobotsRuleset {
 
   /** The disallow patterns in force for this crawler, for reporting. */
   restrictionsFor(userAgent: string): string[];
+
+  /**
+   * The `Content-Signal:` preferences addressed to this crawler.
+   *
+   * Chosen by the same group selection as the rules, so a crawler with its own
+   * group does not inherit the `*` group's signals — which is what the file
+   * literally says, and what a crawler reading it per group will conclude.
+   */
+  usagePreferencesFor(userAgent: string): UsagePreferences;
 }
 
 /** A site with no robots.txt: everything is crawlable. */
@@ -208,7 +252,60 @@ function makeRuleset(
       (groupFor(groups, userAgent)?.rules ?? [])
         .filter((r) => r.type === "disallow" && r.pattern !== "")
         .map((r) => r.pattern),
+    usagePreferencesFor: (userAgent) => groupFor(groups, userAgent)?.usagePreferences ?? {},
   };
+}
+
+/**
+ * One `Content-Signal:` value, read into `into`.
+ *
+ * The value is a comma-separated list of `category=yes|no`. A pair this cannot
+ * read is reported and skipped rather than guessed at: `ai-train=false` is
+ * plainly meant as a refusal, but the policy defines two values, and a crawler
+ * that implements it strictly will see nothing there.
+ */
+function readUsagePreferences(
+  value: string,
+  into: UsagePreferences,
+  lineNumber: number,
+  issues: RobotsIssue[],
+): void {
+  for (const pair of value.split(",")) {
+    const trimmed = pair.trim();
+    if (!trimmed) continue;
+
+    const equals = trimmed.indexOf("=");
+    const category = (equals === -1 ? trimmed : trimmed.slice(0, equals)).trim().toLowerCase();
+    const preference = equals === -1 ? "" : trimmed.slice(equals + 1).trim().toLowerCase();
+
+    if (!(USAGE_CATEGORIES as readonly string[]).includes(category)) {
+      issues.push({
+        type: "warning",
+        message: `Content-Signal names "${category}", which is not one of the policy's three categories (${USAGE_CATEGORIES.join(", ")}). A crawler that reads the policy will ignore it.`,
+        line: lineNumber,
+      });
+      continue;
+    }
+    if (preference !== "yes" && preference !== "no") {
+      issues.push({
+        type: "syntax",
+        message: `Content-Signal "${trimmed}" needs a value of yes or no. As written it states no preference about ${category}.`,
+        line: lineNumber,
+      });
+      continue;
+    }
+
+    const known = category as UsageCategory;
+    const earlier = into[known];
+    if (earlier !== undefined && earlier !== preference) {
+      issues.push({
+        type: "conflict",
+        message: `Content-Signal sets ${category}=${preference} after this group already said ${category}=${earlier}. The later line is the one reported here; a crawler may read either.`,
+        line: lineNumber,
+      });
+    }
+    into[known] = preference;
+  }
 }
 
 /**
@@ -262,12 +359,35 @@ export function parseRobots(text: string): RobotsRuleset {
 
     if (field === "user-agent") {
       if (!current || startedRules) {
-        current = { userAgent: value, rules: [] };
+        current = { userAgent: value, rules: [], usagePreferences: {} };
         groups.push(current);
         startedRules = false;
       } else {
-        groups.push({ userAgent: value, rules: current.rules });
+        groups.push({
+          userAgent: value,
+          rules: current.rules,
+          usagePreferences: current.usagePreferences,
+        });
       }
+      continue;
+    }
+
+    // The Content Signals Policy's one field. Google ignores it — it supports
+    // only user-agent, allow, disallow and sitemap — and so, before this, did we:
+    // it was reported as an "Unknown directive", which told the author their
+    // stated preference was a typo.
+    if (field === "content-signal") {
+      if (!current) {
+        issues.push({
+          type: "syntax",
+          message: "Content-Signal before User-agent. It belongs to a group, so a crawler that reads it per group has no group to apply it to.",
+          line: lineNumber,
+        });
+        continue;
+      }
+      current.usagePreferences ??= {};
+      readUsagePreferences(value, current.usagePreferences, lineNumber, issues);
+      startedRules = true;
       continue;
     }
 

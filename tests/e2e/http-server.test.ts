@@ -234,6 +234,7 @@ describe("the built HTTP server", () => {
     expect(names.sort()).toEqual([
       "ai_visibility_score",
       "crawl_site",
+      "crux_history",
       "entity_mentions",
       "ga4_ai_traffic",
       "ga4_check_compatibility",

@@ -192,12 +192,17 @@ against the properties the account holds, preferring the Domain Property.
 
 ## Needs configuration
 
-One Tool needs something set before it can work:
+Two Tools need something set before they can work:
 
 - `pagespeed_insights` — Google's PageSpeed Insights for a URL, reporting both
   halves separately: field data (what real Chrome users experienced over the last
   28 days, which is what Google ranks on) and lab data (one throttled Lighthouse
   run, which is a diagnostic). Needs `PAGESPEED_API_KEY`.
+- `crux_history` — the same field data as a series: the last 25 weekly
+  collection periods from the Chrome UX Report History API, for a page or a whole
+  origin, each rated against Google's thresholds, with when the rating last
+  changed. The Tool for "did the fix move anything?". Needs the same
+  `PAGESPEED_API_KEY`, with the Chrome UX Report API also enabled on its project.
 
 Put it in a `.env` file at the root of the server:
 
@@ -206,10 +211,11 @@ PAGESPEED_API_KEY=your_key
 ```
 
 Create the key at [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
-and enable the PageSpeed Insights API for its project. The free quota is 25,000
+and enable the PageSpeed Insights API for its project — and the Chrome UX Report
+API as well, for `crux_history`. The free quota is 25,000
 requests a day and needs no billing account.
 
-**Without it the Tool is still listed**, and returns an error naming the variable
+**Without it both Tools are still listed**, and each returns an error naming the variable
 and where to get a value. That is the rule for every Tool on this server, recorded
 in [ADR-0003](./docs/adr/0003-tools-fail-rather-than-degrade.md): a Tool that
 cannot do its whole job says what to configure and never returns a smaller result

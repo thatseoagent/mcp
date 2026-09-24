@@ -53,7 +53,7 @@ const FAILURE_CONTEXT = "audit the llms.txt for this site";
 
 /** The one Tool worth running next, named exactly as it is registered. */
 const ROBOTS_TIP =
-  "Tip: run seo_robots_validator to verify AI bots (GPTBot, ClaudeBot, PerplexityBot) are not blocked.";
+  "Tip: run seo_robots_validator to verify the AI search crawlers (OAI-SearchBot, Claude-SearchBot, PerplexityBot) are not blocked.";
 
 /**
  * What the site says about the sitemap it was generated from.

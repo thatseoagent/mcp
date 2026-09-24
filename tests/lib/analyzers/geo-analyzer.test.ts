@@ -1043,7 +1043,7 @@ describe("sitemap lastmod is matched to the analyzed page (#312)", () => {
  * already knows.
  */
 describe("scoreAiCrawlerAccess — the detail earns its line", () => {
-  const BOTS = ["GPTBot", "PerplexityBot", "ClaudeBot", "Google-Extended"];
+  const BOTS = ["OAI-SearchBot", "PerplexityBot", "Claude-SearchBot"];
 
   const detailFor = (cat: ReturnType<typeof scoreAiCrawlerAccess>, bot: string) =>
     cat.checks.find((c) => c.label === `${bot} allowed in robots.txt`)?.detail;
@@ -1065,26 +1065,25 @@ describe("scoreAiCrawlerAccess — the detail earns its line", () => {
     );
     const present = scoreAiCrawlerAccess(robotsFound("User-agent: *\nAllow: /"), "<html></html>", false);
 
-    expect(detailFor(absent, "GPTBot")).toContain("No /robots.txt");
-    expect(detailFor(present, "GPTBot")).toContain("no Disallow rule matching GPTBot");
-    expect(detailFor(absent, "GPTBot")).not.toBe(detailFor(present, "GPTBot"));
+    expect(detailFor(absent, "OAI-SearchBot")).toContain("No /robots.txt");
+    expect(detailFor(present, "OAI-SearchBot")).toContain("no Disallow rule matching OAI-SearchBot");
+    expect(detailFor(absent, "OAI-SearchBot")).not.toBe(detailFor(present, "OAI-SearchBot"));
   });
 
   it("names the reason when a bot is blocked", () => {
     const cat = scoreAiCrawlerAccess(
-      robotsFound("User-agent: GPTBot\nDisallow: /"),
+      robotsFound("User-agent: OAI-SearchBot\nDisallow: /"),
       "<html></html>",
       false
     );
-    expect(detailFor(cat, "GPTBot")).toContain("Disallow rule");
+    expect(detailFor(cat, "OAI-SearchBot")).toContain("Disallow rule");
     // And the others in the same file are untouched by it.
-    expect(detailFor(cat, "ClaudeBot")).toContain("no Disallow rule matching ClaudeBot");
+    expect(detailFor(cat, "Claude-SearchBot")).toContain("no Disallow rule matching Claude-SearchBot");
   });
 
-  it("still scores all four, with their own weights", () => {
-    // The loop replaced four hand-written blocks; the points must not have moved.
+  it("scores the three search crawlers, with their own weights", () => {
     const cat = scoreAiCrawlerAccess(robotsFound("User-agent: *\nAllow: /"), "<html></html>", false);
     expect(BOTS.map((b) => cat.checks.find((c) => c.label === `${b} allowed in robots.txt`)?.points))
-      .toEqual([5, 3, 3, 2]);
+      .toEqual([5, 3, 3]);
   });
 });

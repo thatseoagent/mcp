@@ -121,10 +121,10 @@ describe("every check that could not be evaluated says why", () => {
     assertAllSayWhy(cat.checks, "scoreFreshness");
   });
 
-  it("holds for all four GEO bot checks at once", () => {
-    // Four identical `status:` lines and one shared detail. If the sentence ever
-    // drifts on one of them it drifts on all four, which is the argument for a
-    // walk rather than four assertions.
+  it("holds for every GEO robots.txt check at once", () => {
+    // Three search-crawler rows and the informational training row share one
+    // detail. If the sentence ever drifts on one of them it drifts on all, which is
+    // the argument for a walk rather than four assertions.
     const cat = scoreAiCrawlerAccess(unread, "<html></html>", false);
     assertAllSayWhy(cat.checks, "scoreAiCrawlerAccess");
     expect(cat.checks.filter((c) => c.status === "not-evaluated").length).toBeGreaterThanOrEqual(4);

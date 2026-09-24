@@ -5,8 +5,9 @@
 
 import { type Result, success, failure } from "../type-guards";
 import { fetchWithTimeout, validateUrl } from "../http-client";
-import { parseRobots, type RobotsRuleset } from "./robots-ruleset";
+import { parseRobots, type RobotsRuleset, type UsagePreferences } from "./robots-ruleset";
 import { PageFetchError } from "../page-fetch-error";
+import { AI_CRAWLERS, type AiCrawlerPurpose } from "../ai-crawlers";
 
 export interface RobotsDirective {
   userAgent: string;
@@ -17,8 +18,17 @@ export interface RobotsDirective {
   }[];
 }
 
+/**
+ * Re-exported for the Tool, which headings its output by purpose. The list and
+ * the reasoning live in `ai-crawlers.ts`.
+ */
+export type { AiCrawlerPurpose };
+
 export interface AiCrawlerDirective {
   crawler: string;
+  /** The user-agent token alone, as robots.txt addresses it. */
+  token: string;
+  purpose: AiCrawlerPurpose;
   blocked: boolean;
   patterns: string[];
 }
@@ -36,6 +46,11 @@ export interface RobotsAnalysisResult {
   directives: RobotsDirective[];
   sitemaps: string[];
   aiCrawlers: AiCrawlerDirective[];
+  /**
+   * Every group that states a `Content-Signal:` preference, in file order.
+   * Empty when the file states none, which is the common case and not a defect.
+   */
+  usagePreferences: Array<{ userAgent: string; preferences: UsagePreferences }>;
   issues: RobotsIssue[];
   summary: {
     totalUserAgents: number;
@@ -44,23 +59,6 @@ export interface RobotsAnalysisResult {
     blocksAiCrawlers: boolean;
   };
 }
-
-/**
- * Known AI crawlers to detect.
- */
-const AI_CRAWLERS = [
-  { name: "GPTBot", description: "OpenAI ChatGPT" },
-  { name: "Google-Extended", description: "Google Bard/Gemini" },
-  { name: "CCBot", description: "Common Crawl" },
-  { name: "anthropic-ai", description: "Anthropic Claude" },
-  { name: "ClaudeBot", description: "Anthropic Claude" },
-  { name: "Bytespider", description: "TikTok" },
-  { name: "Omgilibot", description: "Omgili search" },
-  { name: "Applebot-Extended", description: "Apple Intelligence" },
-  { name: "FacebookBot", description: "Meta AI" },
-  { name: "Diffbot", description: "Diffbot AI" },
-  { name: "PerplexityBot", description: "Perplexity AI" },
-];
 
 /**
  * Analyze robots.txt file for a website.
@@ -113,6 +111,7 @@ export async function analyzeRobotsTxt(
       directives: [],
       sitemaps: [],
       aiCrawlers: [],
+      usagePreferences: [],
       issues: [],
       summary: {
         totalUserAgents: 0,
@@ -137,6 +136,10 @@ export async function analyzeRobotsTxt(
   // Detect AI crawler blocks
   const aiCrawlers = detectAiCrawlerBlocks(ruleset);
 
+  const usagePreferences = ruleset.groups
+    .filter((group) => Object.keys(group.usagePreferences ?? {}).length > 0)
+    .map((group) => ({ userAgent: group.userAgent, preferences: { ...group.usagePreferences } }));
+
   // Calculate summary
   const summary = calculateSummary(ruleset, aiCrawlers);
 
@@ -147,6 +150,7 @@ export async function analyzeRobotsTxt(
     directives,
     sitemaps,
     aiCrawlers,
+    usagePreferences,
     issues,
     summary,
   });
@@ -168,6 +172,8 @@ export async function analyzeRobotsTxt(
 function detectAiCrawlerBlocks(ruleset: RobotsRuleset): AiCrawlerDirective[] {
   return AI_CRAWLERS.map((aiCrawler) => ({
     crawler: `${aiCrawler.name} (${aiCrawler.description})`,
+    token: aiCrawler.name,
+    purpose: aiCrawler.purpose,
     blocked: ruleset.blocksEntirely(aiCrawler.name),
     patterns: ruleset.restrictionsFor(aiCrawler.name),
   }));

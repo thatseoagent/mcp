@@ -6,6 +6,7 @@
  */
 
 import { readOptionalConfig } from "../required-config";
+import { ANSWER_ENGINE_CRAWLERS } from "../ai-crawlers";
 import { hasLocalizedLink } from "../localized-page-detection";
 import type { TrustPageFinding } from "../site-trust-pages";
 import { tally, notScored, type Scorable } from "./scored-checks";
@@ -572,7 +573,9 @@ export function analyzeL2(
 export function scoreL4(
   page: ParsedPage,
   aiBotAccess:
-    | { status: "ok" | "blocked"; blocked: string[] }
+    // `blocked` is the AI search crawlers; `trainingBlocked` is reported, never
+    // scored. Optional so a caller with nothing to say about training need not.
+    | { status: "ok" | "blocked"; blocked: string[]; trainingBlocked?: string[] }
     | { status: "unavailable"; blocked: string[]; reason: string },
   freshness: "fresh" | "aging" | "stale" | "unknown",
   pageKind: PageKind,
@@ -747,14 +750,22 @@ export function scoreL4(
   // while a 5xx that happened to serve a body reported a clean 8/8 "all crawlers
   // allowed" about a server that never answered correctly (#337). A site with no
   // robots.txt still passes, because that is a real answer: no rules, nothing blocked.
+  //
+  // The crawlers are the ones AI search cites from. This was GPTBot, PerplexityBot,
+  // ClaudeBot and Google-Extended, so a training opt-out cost the full 8 while a
+  // block on OAI-SearchBot cost nothing; `ai-crawlers.ts` has the account.
   const unreadable = aiBotAccess.status === "unavailable";
+  const trainingBlocked = aiBotAccess.status === "unavailable" ? [] : (aiBotAccess.trainingBlocked ?? []);
+  const trainingNote = trainingBlocked.length > 0
+    ? ` ${trainingBlocked.join(", ")} ${trainingBlocked.length === 1 ? "is" : "are"} blocked, which is the training opt-out and costs nothing here.`
+    : "";
   const aiBotsDetail = aiBotAccess.status === "unavailable"
     ? notScored(aiBotAccess.reason, "retry, or check that /robots.txt is reachable")
     : aiBotAccess.blocked.length === 0
-    ? "GPTBot, PerplexityBot, ClaudeBot, and Google-Extended are all allowed — AI crawlers can index your content"
-    : `${aiBotAccess.blocked.join(", ")} blocked in robots.txt — remove these rules to allow AI crawlers to index your content`;
+    ? `${ANSWER_ENGINE_CRAWLERS.join(", ")} are all allowed — AI search can read and cite your content.${trainingNote}`
+    : `${aiBotAccess.blocked.join(", ")} blocked in robots.txt — while blocked, that product's search index cannot include your content.${trainingNote}`;
   checks.push({
-    name: "AI crawlers allowed (GPTBot, PerplexityBot, ClaudeBot, Google-Extended)", source: ROBOTS_FACT,
+    name: `AI search crawlers allowed (${ANSWER_ENGINE_CRAWLERS.join(", ")})`, source: ROBOTS_FACT,
     passed: aiBotAccess.status === "ok",
     points: 8,
     status: unreadable ? "not-evaluated" : undefined,
@@ -848,8 +859,8 @@ export function buildTopActions(
     if (c.passed) continue;
     if (c.name.includes("first 30%"))
       actions.push({ priority: 1, action: "Front-load a definition or key data point in your first paragraph — 44.2% of AI citations come from the first 30% of page text" });
-    else if (c.name.includes("AI crawlers allowed"))
-      actions.push({ priority: 1, action: `Allow AI crawlers in robots.txt — remove Disallow rules for GPTBot, PerplexityBot, ClaudeBot, and Google-Extended` });
+    else if (c.name.includes("AI search crawlers allowed"))
+      actions.push({ priority: 1, action: `Allow the AI search crawlers in robots.txt — remove the Disallow rules for ${ANSWER_ENGINE_CRAWLERS.join(", ")}. To opt out of training only, block GPTBot and ClaudeBot instead` });
     // Was `c.detail.includes("below")`, against a detail later rewritten to stop
     // calling the range a rule — so the words it matched on were gone and the action
     // could never fire (#341). It reads the measurement now, not the prose about it.

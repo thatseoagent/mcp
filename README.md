@@ -270,10 +270,10 @@ thatseoagent-mcp-login          # or `pnpm mcp-auth` from a clone
 ```
 
 The command prints the two scopes it asks for and what stops working without
-each, opens your browser, receives Google's redirect on an ephemeral loopback
-port, stores the tokens and stops listening. Both scopes are **read-only**: this
-server never submits a sitemap, requests indexing, or writes anything to your
-Google account.
+each, opens your browser, receives Google's redirect on
+`http://127.0.0.1:3738/callback`, stores the tokens and stops listening. Both
+scopes are **read-only**: this server never submits a sitemap, requests
+indexing, or writes anything to your Google account.
 
 You log in once. The server refreshes the access token internally from then on.
 Re-running the command switches accounts. Tokens are stored unencrypted in the

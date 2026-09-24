@@ -179,6 +179,12 @@ Logged in.
 
 You do this once. The server refreshes the access token internally from then on.
 
+Google sends you back to `http://127.0.0.1:3738/callback`, the same address on
+every login. The command listens there only until the redirect arrives, then
+stops. You do not register it anywhere: a **Desktop app** client accepts any
+loopback address. It is deliberately not 3737, so you can log in while the server
+is running.
+
 ### What the two scopes buy
 
 | Scope | Without it |
@@ -263,6 +269,11 @@ Something else has the port. The message names what. Stop it, or change the port
 in `src/lib/server-address.json` and rebuild — the address is compiled into the
 build, which is why the server refuses to move rather than starting somewhere
 your client is not looking.
+
+**`Port 3738 on 127.0.0.1 is already in use`**
+The login cannot open the port Google redirects to. Usually another `pnpm mcp-auth`
+is still waiting in a different terminal: finish or cancel that one, and run the
+command again.
 
 **`There is no build to run: dist/http.js does not exist`**
 Run `pnpm build`. If you already did, check whether `pnpm dev` is running in

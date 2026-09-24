@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { GOOGLE_SCOPES } from "@/lib/google/scopes";
 import { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } from "@/lib/google/oauth";
+import { CALLBACK_PORT } from "@/lib/google/login-flow";
 import { HTTP_ENDPOINT, HTTP_PORT, MCP_URL } from "@/lib/server-address";
 
 /**
@@ -30,6 +31,10 @@ describe("the setup guide quotes this server correctly", () => {
     expect(guide).toContain(MCP_URL);
     expect(guide).toContain(String(HTTP_PORT));
     expect(guide).toContain(HTTP_ENDPOINT);
+  });
+
+  it("names the address the login receives Google's redirect on", () => {
+    expect(guide).toContain(`http://127.0.0.1:${CALLBACK_PORT}/callback`);
   });
 
   it("names commands that exist", () => {
@@ -91,6 +96,7 @@ describe("the troubleshooting table maps real messages", () => {
    */
   const messages: Array<[string, string]> = [
     ["Port 3737 on 127.0.0.1 is already in use", "scripts/start.mjs"],
+    [`Port ${CALLBACK_PORT} on 127.0.0.1 is already in use`, "src/lib/google/login-flow.ts"],
     ["There is no build to run", "scripts/start.mjs"],
     ["is not set", "src/lib/required-config.ts"],
     ["Google did not return a refresh token", "src/lib/google/login-flow.ts"],
@@ -107,7 +113,8 @@ describe("the troubleshooting table maps real messages", () => {
       expect(guide, `the guide is missing "${phrase}"`).toContain(phrase);
       // `returned HTTP 403` is built from a template, so the fragment either side
       // of the status is what to look for.
-      const inCode = phrase.replace(/\b403\b/, "${status}").replace("Port 3737 on 127.0.0.1", "Port ${port} on ${host}");
+      const inCode = phrase.replace(/\b403\b/, "${status}").replace("Port 3737 on 127.0.0.1", "Port ${port} on ${host}")
+        .replace(`Port ${CALLBACK_PORT} on`, "Port ${CALLBACK_PORT} on");
       expect(code, `${source} no longer produces "${phrase}"`).toContain(inCode);
     });
   }

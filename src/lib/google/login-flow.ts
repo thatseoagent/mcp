@@ -14,14 +14,17 @@
  * whole flow exists to receive. It closes on the success path, on every failure
  * path, and on the timeout.
  *
- * ── The port is ephemeral, and that is not the MCP port ──
+ * ── The port is fixed, and it is not the MCP port ──
  *
- * Port 0, so the operating system picks a free one. This is the opposite of the
- * decision in `server-address.json`, and the reason differs: the MCP port must
- * be fixed because a client is configured with it, while this one exists for
- * about twenty seconds and is communicated to Google in the redirect URI at the
- * moment it is chosen. It also means a login cannot collide with a running
- * server, or with a second login.
+ * Always 3738, so the redirect URI is the same on every login: it can be named
+ * in the docs, recognised in the browser's address bar, and allowed through a
+ * firewall. A "Desktop app" client would accept any loopback port, so this is
+ * not something Google needs registered.
+ *
+ * Not 3737, though. The Operator usually logs in with the server already
+ * running — that is how they find out a Tool needs the login — and on the MCP
+ * port the login would find its own server in the way. One up from it, so the
+ * two are easy to remember together.
  *
  * ── `state` is checked ──
  *
@@ -32,11 +35,13 @@
  */
 import { createServer, type Server } from "node:http";
 import { randomBytes } from "node:crypto";
-import { type AddressInfo } from "node:net";
 import type { OAuth2Client } from "google-auth-library";
 
 /** How long the Operator gets to finish consenting before the server gives up. */
 const CONSENT_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** The port the listener binds. See "The port is fixed" above. */
+export const CALLBACK_PORT = 3738;
 
 /** The path Google is told to redirect to. */
 const CALLBACK_PATH = "/callback";
@@ -111,6 +116,10 @@ export async function awaitConsent(): Promise<ConsentListener> {
   timer.unref?.();
 
   const server: Server = createServer((request, response) => {
+    // No keep-alive. The port is the same on every login, so a socket the
+    // browser kept from a previous one would be reused against a server that is
+    // no longer there.
+    response.setHeader("connection", "close");
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     if (url.pathname !== CALLBACK_PATH) {
       response.writeHead(404).end();
@@ -152,7 +161,7 @@ export async function awaitConsent(): Promise<ConsentListener> {
 
   // Loopback only. A login listener reachable from the LAN would accept a code
   // from anywhere on the network.
-  server.listen(0, "127.0.0.1");
+  server.listen(CALLBACK_PORT, "127.0.0.1");
 
   // Awaited rather than returned with a lazily-read port: the redirect URI is
   // the first thing the caller needs, and a handle whose URI is only valid
@@ -163,16 +172,29 @@ export async function awaitConsent(): Promise<ConsentListener> {
   // an unhandled rejection reported instead of the real error.
   await new Promise<void>((resolve, reject) => {
     server.once("listening", resolve);
-    server.once("error", reject);
+    server.once("error", (error: NodeJS.ErrnoException) => {
+      clearTimeout(timer);
+      if (error.code !== "EADDRINUSE") {
+        reject(error);
+        return;
+      }
+      // The likeliest owner is another login still waiting in some other
+      // terminal. Named, because a bare EADDRINUSE reads like a bug.
+      reject(
+        new Error(
+          `Port ${CALLBACK_PORT} on 127.0.0.1 is already in use, and the login needs it ` +
+            `to receive Google's redirect. If another login is still waiting in a different ` +
+            `terminal, finish or cancel that one; otherwise stop whatever holds the port.`,
+        ),
+      );
+    });
   });
 
   // From here on the caller holds `code`, so a later error belongs to it.
   server.on("error", (error) => finish({ error }));
 
-  const address = server.address() as AddressInfo;
-
   return {
-    redirectUri: `http://127.0.0.1:${address.port}${CALLBACK_PATH}`,
+    redirectUri: `http://127.0.0.1:${CALLBACK_PORT}${CALLBACK_PATH}`,
     state,
     code,
     stop,

@@ -33,7 +33,7 @@ describe("the setup guide quotes this server correctly", () => {
   });
 
   it("names commands that exist", () => {
-    for (const command of ["install", "build", "start", "login"]) {
+    for (const command of ["install", "build", "start", "mcp-auth"]) {
       // `pnpm install` is npm's own; the rest have to be declared.
       if (command !== "install") {
         expect(packageJson.scripts, command).toHaveProperty(command);

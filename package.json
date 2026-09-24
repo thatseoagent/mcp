@@ -19,7 +19,7 @@
     "hooks": "git config core.hooksPath .githooks",
     "build:raw": "xmcp build",
     "db:generate": "drizzle-kit generate",
-    "login": "node dist/login.cjs",
+    "mcp-auth": "node dist/login.cjs",
     "home": "node scripts/build-home-page.mjs"
   },
   "dependencies": {

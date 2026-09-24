@@ -161,13 +161,13 @@ that looks like the login not having worked: you export in one terminal, log in
 there, start the server in another, and the server has nothing.
 
 `.env` is gitignored. A variable already set in your shell still wins over the
-file, so a one-off `GOOGLE_CLIENT_ID=... pnpm login` is still the way to try a
+file, so a one-off `GOOGLE_CLIENT_ID=... pnpm mcp-auth` is still the way to try a
 second account without editing your configuration and putting it back.
 
 ### 2.6 Log in
 
 ```bash
-pnpm login
+pnpm mcp-auth
 ```
 
 The command prints the two permissions it is about to ask for, opens your
@@ -292,11 +292,11 @@ the type of an existing one.
 
 **`Google did not return a refresh token`**
 A previous grant is still active. Remove this app at
-<https://myaccount.google.com/permissions> and run `pnpm login` again.
+<https://myaccount.google.com/permissions> and run `pnpm mcp-auth` again.
 
 **`No Full Report for example.com: No Search Console property found`**
 This Google account holds no property covering that domain. Add and verify the
-site at <https://search.google.com/search-console>, or run `pnpm login` again to
+site at <https://search.google.com/search-console>, or run `pnpm mcp-auth` again to
 switch accounts. The credential-free Tools work on it regardless.
 
 **`...property found but not verified`**

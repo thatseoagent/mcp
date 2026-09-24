@@ -66,7 +66,7 @@ export const GOOGLE_CLIENT_SECRET: ConfigRequirement = {
 const GOOGLE_LOGIN: ConfigRequirement = {
   variable: "the Google login",
   purpose: "read your Search Console and Analytics data",
-  howToGet: "Run `thatseoagent-mcp-login` (or `pnpm login` from a clone) and authorize in the browser.",
+  howToGet: "Run `thatseoagent-mcp-login` (or `pnpm mcp-auth` from a clone) and authorize in the browser.",
 };
 
 /** An OAuth client built from the Operator's credentials. */

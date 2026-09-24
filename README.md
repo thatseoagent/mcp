@@ -266,7 +266,7 @@ GOOGLE_CLIENT_SECRET=...
 ```
 
 ```bash
-thatseoagent-mcp-login          # or `pnpm login` from a clone
+thatseoagent-mcp-login          # or `pnpm mcp-auth` from a clone
 ```
 
 The command prints the two scopes it asks for and what stops working without

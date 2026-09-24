@@ -30,8 +30,8 @@ Google, or this account holds no Search Console property for the domain. That is
 fastest way to find out, and a refusal is a state rather than a fault — read it out and
 carry on with the Tools that need no credentials.
 
-**Two halves.** Everything named seo_*, crawl_site and pagespeed_insights reads a site's
-public surface and works on any domain, including one the Operator does not own. Anything
+**Two halves.** Everything named seo_*, crawl_site, pagespeed_insights and crux_history
+reads a site's public surface and works on any domain, including one the Operator does not own. Anything
 named gsc_*, ga4_*, run_site_audit or sync_gsc_properties reads the Operator's own Google
 data and needs the login.
 

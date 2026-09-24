@@ -28,7 +28,52 @@ describe("seo_robots_validator", () => {
     const text = textOf(await seoRobotsValidator({ url: "https://example.com/" }));
 
     expect(text).toContain("Blocks AI crawlers: Yes");
-    expect(text).toMatch(/Blocked AI crawlers:[\s\S]*GPTBot/);
+    expect(text).toMatch(/GPTBot \(OpenAI model training\): BLOCKED/);
+  });
+
+  it("tells a search-crawler block apart from a training opt-out", async () => {
+    // Blocking OAI-SearchBot is how a site leaves ChatGPT search. Reporting it
+    // under "blocks AI crawlers" with training advice underneath would read as
+    // the opt-out working, when it is the site removing itself from answers.
+    serve({ "example.com/robots.txt": { body: "User-agent: OAI-SearchBot\nDisallow: /\n" } });
+
+    const text = textOf(await seoRobotsValidator({ url: "https://example.com/" }));
+
+    expect(text).toMatch(/AI search \(blocking these[^\n]*\n(?:.*\n)*?.*OAI-SearchBot[^\n]*: BLOCKED/);
+    expect(text).toContain("OAI-SearchBot is blocked");
+    expect(text).toContain("No training crawler is blocked");
+  });
+
+  it("does not recommend a training opt-out that is already in place", async () => {
+    serve({ "example.com/robots.txt": { body: "User-agent: ClaudeBot\nDisallow: /\n" } });
+
+    const text = textOf(await seoRobotsValidator({ url: "https://example.com/" }));
+
+    expect(text).not.toContain("No training crawler is blocked");
+  });
+
+  it("reports Content-Signal as a usage preference, with what it cannot do", async () => {
+    serve({
+      "example.com/robots.txt": {
+        body: "User-agent: *\nContent-Signal: search=yes, ai-train=no\nAllow: /\n",
+      },
+    });
+
+    const text = textOf(await seoRobotsValidator({ url: "https://example.com/" }));
+
+    expect(text).toContain("=== CONTENT-SIGNAL (usage preferences) ===");
+    expect(text).toContain("User-agent: * — search=yes, ai-train=no");
+    expect(text).toContain("not an access rule");
+    // It is a directive the policy defines, not a typo.
+    expect(text).not.toContain("Unknown directive: content-signal");
+  });
+
+  it("says nothing about Content-Signal when the file states none", async () => {
+    serve({ "example.com/robots.txt": { body: "User-agent: *\nDisallow: /admin/\n" } });
+
+    const text = textOf(await seoRobotsValidator({ url: "https://example.com/" }));
+
+    expect(text).not.toContain("CONTENT-SIGNAL");
   });
 
   it("warns when the whole site is closed to crawlers", async () => {

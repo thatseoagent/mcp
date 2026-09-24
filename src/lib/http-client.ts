@@ -190,12 +190,29 @@ export async function fetchAnyStatus(
  */
 export async function fetchThirdPartyApi(
   url: string,
-  options: { timeout?: number; headers?: Record<string, string> } = {},
+  options: {
+    timeout?: number;
+    headers?: Record<string, string>;
+    /**
+     * A JSON body, which makes this a POST. For query APIs that take their
+     * question as a body — the CrUX API accepts nothing else. It is still a read:
+     * rule 7 of ADR-0006 is about the sites we audit, and this is a fixed Google
+     * endpoint answering a question, not a write to anyone's server.
+     */
+    json?: unknown;
+  } = {},
 ): Promise<Response> {
   await paceRequestTo(url);
+  const body = options.json === undefined ? undefined : JSON.stringify(options.json);
   const { response } = await safeFetch(url, {
+    method: body === undefined ? "GET" : "POST",
+    body,
     signal: AbortSignal.timeout(options.timeout ?? DEFAULT_TIMEOUT),
-    headers: { "User-Agent": PAGE_AUDIT_USER_AGENT, ...options.headers },
+    headers: {
+      "User-Agent": PAGE_AUDIT_USER_AGENT,
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      ...options.headers,
+    },
   });
   return response;
 }

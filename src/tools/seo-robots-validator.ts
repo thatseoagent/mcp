@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
-import { analyzeRobotsTxt } from "../lib/analyzers/robots-analyzer";
+import { analyzeRobotsTxt, type AiCrawlerPurpose } from "../lib/analyzers/robots-analyzer";
+import { USAGE_CATEGORIES } from "../lib/analyzers/robots-ruleset";
 import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
 import { unwrap } from "../lib/type-guards";
@@ -37,13 +38,44 @@ const FAILURE_CONTEXT = "validate the robots.txt for this site";
 /** How many user-agent groups to print. */
 const MAX_DIRECTIVES_SHOWN = 20;
 
-/** The AI crawler directives a site owner would add to block model training. */
+/**
+ * The directives a site owner would add to opt out of model training, and only
+ * that.
+ *
+ * Training crawlers and control tokens, never the search crawlers. Blocking
+ * OAI-SearchBot or Claude-SearchBot is how a site leaves ChatGPT and Claude
+ * search, not how it leaves a training set, and the advice used to sit under a
+ * flat list that did not tell the two apart. `anthropic-ai` is gone from it:
+ * ClaudeBot is the token Anthropic documents for training.
+ */
 const AI_BLOCK_EXAMPLE = [
   "GPTBot",
+  "ClaudeBot",
   "Google-Extended",
+  "Applebot-Extended",
   "CCBot",
-  "anthropic-ai",
 ].map((agent) => `    User-agent: ${agent}\n    Disallow: /`);
+
+/** How each purpose is headed in the output, in the order a reader should meet them. */
+const PURPOSE_HEADINGS: ReadonlyArray<[AiCrawlerPurpose, string]> = [
+  ["search", "AI search (blocking these removes the site from that product's answers)"],
+  ["user-fetch", "Fetches on a user's request (some operators say robots.txt does not govern these)"],
+  ["training", "Model training (blocking these is the training opt-out; search is unaffected)"],
+  ["control-token", "Control tokens (not crawlers; they govern use, never crawling or ranking)"],
+];
+
+/**
+ * What a `Content-Signal:` line is, said every time one is reported.
+ *
+ * Because the most natural misreading is the costly one: it looks like an access
+ * rule and is not. Nothing in it stops a fetch.
+ */
+const USAGE_PREFERENCE_CAVEAT = [
+  "Content-Signal is a stated preference about how fetched content may be used,",
+  "not an access rule: it blocks no crawler, Google does not document reading it",
+  "(Google-Extended is Google's own training control), and it binds only the",
+  "crawlers that choose to honour it. An unlisted category states no preference.",
+];
 
 export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_robots_validator", domainOf: domainFromUrl }, async ({ url }: InferSchema<typeof schema>) => {
   const data = unwrap(await analyzeRobotsTxt(url));
@@ -69,23 +101,32 @@ export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_robots_validat
   lines.push(`Allows Googlebot: ${data.summary.allowsGooglebot ? "Yes" : "No"}`);
   lines.push(`Blocks AI crawlers: ${data.summary.blocksAiCrawlers ? "Yes" : "No"}`);
 
-  const blocked = data.aiCrawlers.filter((c) => c.blocked);
-  const allowed = data.aiCrawlers.filter((c) => !c.blocked);
-
   lines.push("");
   lines.push("=== AI CRAWLER STATUS ===");
-  if (blocked.length > 0) {
+  for (const [purpose, heading] of PURPOSE_HEADINGS) {
+    const crawlers = data.aiCrawlers.filter((c) => c.purpose === purpose);
+    if (crawlers.length === 0) continue;
     lines.push("");
-    lines.push("Blocked AI crawlers:");
-    for (const crawler of blocked) {
-      lines.push(`  - ${crawler.crawler}`);
-      for (const pattern of crawler.patterns) lines.push(`    Disallow: ${pattern}`);
+    lines.push(`${heading}:`);
+    for (const crawler of crawlers) {
+      lines.push(`  - ${crawler.crawler}: ${crawler.blocked ? "BLOCKED" : "allowed"}`);
+      if (crawler.blocked) {
+        for (const pattern of crawler.patterns) lines.push(`    Disallow: ${pattern}`);
+      }
     }
   }
-  if (allowed.length > 0) {
+
+  if (data.usagePreferences.length > 0) {
     lines.push("");
-    lines.push("Allowed AI crawlers:");
-    for (const crawler of allowed) lines.push(`  - ${crawler.crawler}`);
+    lines.push("=== CONTENT-SIGNAL (usage preferences) ===");
+    for (const { userAgent, preferences } of data.usagePreferences) {
+      const stated = USAGE_CATEGORIES.filter((category) => preferences[category] !== undefined)
+        .map((category) => `${category}=${preferences[category]}`)
+        .join(", ");
+      lines.push(`User-agent: ${userAgent} — ${stated}`);
+    }
+    lines.push("");
+    lines.push(...USAGE_PREFERENCE_CAVEAT);
   }
 
   if (data.sitemaps.length > 0) {
@@ -131,9 +172,18 @@ export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_robots_validat
   lines.push("=== RECOMMENDATIONS ===");
   if (data.issues.length === 0) lines.push("No syntax issues detected.");
 
-  if (!data.summary.blocksAiCrawlers) {
-    lines.push("- Your content is accessible to AI crawlers (GPTBot, ClaudeBot, etc.).");
-    lines.push("  To block AI training, add these directives:");
+  const blockedSearch = data.aiCrawlers.filter((c) => c.purpose === "search" && c.blocked);
+  if (blockedSearch.length > 0) {
+    lines.push(
+      `- ${blockedSearch.map((c) => c.token).join(", ")} ${blockedSearch.length === 1 ? "is" : "are"} blocked. ` +
+        "These build the index AI search answers cite from, so",
+    );
+    lines.push("  the site cannot be cited there. If the aim was to opt out of training, block the");
+    lines.push("  training crawlers instead and allow these.");
+  }
+  if (!data.aiCrawlers.some((c) => c.purpose === "training" && c.blocked)) {
+    lines.push("- No training crawler is blocked, so the content is available for model training.");
+    lines.push("  To opt out of training without leaving AI search, add these directives:");
     lines.push(...AI_BLOCK_EXAMPLE);
   }
   if (data.sitemaps.length === 0) {

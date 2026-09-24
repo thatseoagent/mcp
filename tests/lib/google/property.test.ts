@@ -142,6 +142,26 @@ describe("falling back between the two shapes", () => {
     expect(asked).toHaveLength(1);
   });
 
+  it("does not retry when Google said the API is disabled", async () => {
+    // The other shape would be refused for the same reason; the second request
+    // only delays the sentence that names the fix.
+    const asked: string[] = [];
+    const disabled = new UpstreamApiError("Google Search Console", 403, {
+      reason: "api-disabled",
+      api: "searchconsole.googleapis.com",
+      project: "123",
+    });
+
+    await expect(
+      withPropertyFallback(reader(), "sc-domain:example.com", async (property) => {
+        asked.push(property);
+        throw disabled;
+      }),
+    ).rejects.toBe(disabled);
+
+    expect(asked).toHaveLength(1);
+  });
+
   it("surfaces the original refusal when both shapes refuse", async () => {
     // The Operator asked about the property they named. A message about one they
     // never mentioned would send them looking in the wrong place.

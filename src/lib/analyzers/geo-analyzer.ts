@@ -165,6 +165,7 @@ import { REMOVES_FROM_INDEX } from "./technical-requirements";
 import { findNodeInAll, findNodeWith, flattenJsonLd } from "./json-ld-graph";
 import { tally, notScored, type Scorable } from "./scored-checks";
 import { parseRobots } from "./robots-ruleset";
+import { TRAINING_CRAWLERS } from "../ai-crawlers";
 import { answered, textOrEmpty, type WellKnownRead } from "../well-known";
 import { countWords } from "../text-analyzer";
 import {
@@ -636,6 +637,13 @@ export function scoreContentStructure(page: ParsedPage, pageType: PageKind): Geo
  * `absent` is deliberately still a pass. No robots.txt means no rules, so every
  * crawler really is allowed — the case this used to get right by accident and now
  * gets right on purpose.
+ *
+ * The crawlers scored are the ones that feed AI answers — OAI-SearchBot (5),
+ * PerplexityBot (3) and Claude-SearchBot (3). The category used to score GPTBot
+ * (5), ClaudeBot (3) and Google-Extended (2) alongside PerplexityBot, which
+ * charged a training opt-out as lost visibility and let a site block ChatGPT and
+ * Claude search for free. `ai-crawlers.ts` has the full account. Training
+ * crawlers are still reported, in one row worth nothing.
  */
 export function scoreAiCrawlerAccess(
   robotsRead: WellKnownRead,
@@ -652,7 +660,7 @@ export function scoreAiCrawlerAccess(
   const checks: GeoCheck[] = [];
 
   /**
-   * The four AI crawlers, as one loop.
+   * The AI search crawlers, as one loop.
    *
    * They were four copies of the same nine lines differing only in a name and a
    * point value, and each copy's `detail` restated its own label: the row read
@@ -667,14 +675,13 @@ export function scoreAiCrawlerAccess(
    * a pass, for different reasons, and only one of them is worth acting on if it
    * changes.
    */
-  const AI_CRAWLERS: ReadonlyArray<{ bot: string; points: number }> = [
-    { bot: "GPTBot", points: 5 },
+  const SEARCH_CRAWLERS: ReadonlyArray<{ bot: string; points: number }> = [
+    { bot: "OAI-SearchBot", points: 5 },
     { bot: "PerplexityBot", points: 3 },
-    { bot: "ClaudeBot", points: 3 },
-    { bot: "Google-Extended", points: 2 },
+    { bot: "Claude-SearchBot", points: 3 },
   ];
 
-  for (const { bot, points } of AI_CRAWLERS) {
+  for (const { bot, points } of SEARCH_CRAWLERS) {
     const blocked = isBotBlocked(robotsTxt, bot);
     checks.push({
       passed: !blocked,
@@ -690,6 +697,24 @@ export function scoreAiCrawlerAccess(
             : `/robots.txt has no Disallow rule matching ${bot}`),
     });
   }
+
+  // Reported and never scored, on the llms.txt model below: whether a site lets
+  // its content train models is its own decision, and it moves nothing in an
+  // answer. Stated so a blocked GPTBot is not mistaken for the cause of anything.
+  const trainingBlocked = robotsUnread
+    ? []
+    : TRAINING_CRAWLERS.filter((bot) => isBotBlocked(robotsTxt, bot));
+  checks.push({
+    passed: true,
+    label: "Training crawlers (informational — opting out costs nothing here)", source: ROBOTS_FACT,
+    points: 0,
+    status: robotsUnread ? "not-evaluated" : undefined,
+    detail:
+      robotsDetail ??
+      (trainingBlocked.length > 0
+        ? `${trainingBlocked.join(", ")} blocked: the training opt-out. It does not stop AI search from reading or citing the page`
+        : "No training crawler is blocked. Blocking one would not change this score"),
+  });
 
   const metaRobotsContent = html.match(/<meta[^>]+name=["']robots["'][^>]*content=["']([^"']+)["']/i)?.[1] ?? "";
   const hasNosnippet = /nosnippet/i.test(metaRobotsContent) || /data-nosnippet/i.test(html);
@@ -1192,10 +1217,9 @@ export function buildRecommendations(categories: GeoCategory[]): string[] {
     [LABEL.qaPattern]: "Add a Q&A section in the page itself using semantic HTML (details/summary or dt/dd), not only in schema — per Ahrefs' 2026 causal study the schema alone produced no measurable lift (ahrefs.com/blog/schema-ai-citations)",
     "Lists ratio > 10% (structured content)": "Use lists (ul/ol) where the content is a list. A reader skimming finds the items; prose hides them",
     "Statistics & numerical data (%, $, ratios)": "Include the actual numbers behind your claims — a figure someone can check is worth more than an adjective",
-    "GPTBot allowed in robots.txt": "Remove the GPTBot block from robots.txt if you want ChatGPT to be able to read this page — while it is blocked, it cannot fetch the page at all",
-    "PerplexityBot allowed in robots.txt": "Remove the PerplexityBot block from robots.txt if you want Perplexity to be able to read this page",
-    "ClaudeBot allowed in robots.txt": "Remove the ClaudeBot block from robots.txt if you want Claude to be able to read this page",
-    "Google-Extended allowed in robots.txt": "Allow Google-Extended in robots.txt if you want the page usable by Gemini and grounding in AI Overviews. It does not affect Google Search ranking or indexing",
+    "OAI-SearchBot allowed in robots.txt": "Remove the OAI-SearchBot block from robots.txt if you want the page cited in ChatGPT search — while it is blocked, OpenAI's search index cannot include it. To opt out of training only, block GPTBot instead",
+    "PerplexityBot allowed in robots.txt": "Remove the PerplexityBot block from robots.txt if you want the page cited in Perplexity's answers",
+    "Claude-SearchBot allowed in robots.txt": "Remove the Claude-SearchBot block from robots.txt if you want the page cited in Claude's search results. To opt out of training only, block ClaudeBot instead",
     "No nosnippet in meta robots or data-nosnippet": "Remove nosnippet if you want the page quoted — it tells Google not to show a text snippet for the page",
     "Named author (not generic Team/Admin/Staff)": "Credit a named person rather than \"Team\" or \"Admin\", so a reader can see who is accountable for the claims. Note Google states E-E-A-T is not itself a ranking factor",
     "Outbound links to .edu or .gov domains": "Link to the primary sources you relied on, wherever they live. Our check looks for .edu and .gov because they are easy to recognise, not because other sources count less",

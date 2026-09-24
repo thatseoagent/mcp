@@ -47,6 +47,14 @@ phrasings that vary by language come from `answer-patterns.ts`, which says
 `unsupported` for a language it cannot read rather than failing a correct page.
 _Avoid_: GEO signal (the detection is not GEO's), pattern, heuristic
 
+**Usage Preference**:
+What a site's robots.txt says, through a `Content-Signal:` line, about how
+fetched content may be used — `search`, `ai-input`, `ai-train`, each `yes` or
+`no`. A stated preference, not an access rule: it blocks nothing, and a
+category left unstated grants and withholds nothing. Read per user-agent group
+in `robots-ruleset.ts`.
+_Avoid_: content signal (taken: that is a phrasing in a page's copy), AI rule
+
 ## Rules
 
 **A Tool that cannot do its whole job says so; it never returns less and stays quiet.**

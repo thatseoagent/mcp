@@ -172,6 +172,52 @@ Sitemap: https://example.com/sitemap.xml
     expect(r.issues.find((i) => i.type === "conflict")?.message).toMatch(/not a robots.txt directive/);
   });
 
+  it("reads Content-Signal into the group it belongs to", () => {
+    const r = parseRobots(
+      "User-agent: *\nContent-Signal: search=yes, ai-input=yes, ai-train=no\nAllow: /",
+    );
+    expect(r.usagePreferencesFor("SomeCrawler")).toEqual({
+      search: "yes",
+      "ai-input": "yes",
+      "ai-train": "no",
+    });
+    expect(r.issues).toEqual([]);
+  });
+
+  it("does not hand the wildcard group's Content-Signal to a crawler with its own group", () => {
+    // Group selection is the same for signals as for rules: GPTBot's own block
+    // is the whole of what this file says to GPTBot.
+    const r = parseRobots(
+      "User-agent: *\nContent-Signal: ai-train=no\n\nUser-agent: GPTBot\nDisallow: /private/",
+    );
+    expect(r.usagePreferencesFor("GPTBot")).toEqual({});
+    expect(r.usagePreferencesFor("Googlebot")).toEqual({ "ai-train": "no" });
+  });
+
+  it("shares Content-Signal across consecutive User-agent lines, like the rules", () => {
+    const r = parseRobots("User-agent: GPTBot\nUser-agent: ClaudeBot\nContent-Signal: ai-train=no");
+    expect(r.usagePreferencesFor("GPTBot")).toEqual({ "ai-train": "no" });
+    expect(r.usagePreferencesFor("ClaudeBot")).toEqual({ "ai-train": "no" });
+  });
+
+  it("reports a Content-Signal value it cannot read rather than guessing", () => {
+    const r = parseRobots("User-agent: *\nContent-Signal: ai-train=false, ai-trian=no");
+    expect(r.usagePreferencesFor("x")).toEqual({});
+    expect(r.issues.some((i) => /needs a value of yes or no/.test(i.message))).toBe(true);
+    expect(r.issues.some((i) => /"ai-trian", which is not one of/.test(i.message))).toBe(true);
+  });
+
+  it("flags a group that contradicts its own Content-Signal", () => {
+    const r = parseRobots("User-agent: *\nContent-Signal: ai-train=no\nContent-Signal: ai-train=yes");
+    expect(r.issues.find((i) => i.type === "conflict")?.message).toMatch(/ai-train=yes after/);
+  });
+
+  it("reports a Content-Signal outside any group", () => {
+    const r = parseRobots("Content-Signal: ai-train=no\nUser-agent: *\nAllow: /");
+    expect(r.issues.some((i) => /before User-agent/.test(i.message))).toBe(true);
+    expect(r.usagePreferencesFor("x")).toEqual({});
+  });
+
   it("has no rules at all when the site serves no robots.txt", () => {
     expect(NO_ROBOTS.exists).toBe(false);
     expect(NO_ROBOTS.allows("/anything")).toBe(true);

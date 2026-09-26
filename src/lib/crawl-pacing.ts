@@ -143,6 +143,11 @@ export async function paceRequestTo(url: string): Promise<void> {
   state.nextStartAt = startAt + MIN_REQUEST_GAP_MS;
   origins.set(origin, state);
 
-  const wait = startAt - now;
-  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+  // A loop, not one sleep: Node measures a timer against the event loop's
+  // cached clock, which can trail `Date.now()` by a millisecond, so a single
+  // `setTimeout(wait)` can wake just before `startAt` and break the gap this
+  // module promises.
+  for (let wait = startAt - now; wait > 0; wait = startAt - Date.now()) {
+    await new Promise((resolve) => setTimeout(resolve, wait));
+  }
 }

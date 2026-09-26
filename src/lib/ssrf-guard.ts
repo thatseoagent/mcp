@@ -215,7 +215,15 @@ export async function assertUrlAllowed(rawUrl: string): Promise<URL> {
 
 // ── Hardened fetch ───────────────────────────────────────────────────────────
 
-const SENSITIVE_HEADERS = new Set(["authorization", "cookie", "proxy-authorization"]);
+/**
+ * Headers that carry a credential, and so never follow a redirect to another origin.
+ *
+ * `x-goog-api-key` is here because Web Risk and Cloud Natural Language take their
+ * key in it rather than in `Authorization`, as Google recommends. Left off this
+ * list, a Google endpoint redirecting elsewhere would hand the Operator's billed
+ * key to whatever host it named.
+ */
+const SENSITIVE_HEADERS = new Set(["authorization", "cookie", "proxy-authorization", "x-goog-api-key"]);
 
 /** Drop credential-bearing headers from any HeadersInit, returning a plain object. */
 function stripSensitiveHeaders(headers: HeadersInit | undefined): Record<string, string> {

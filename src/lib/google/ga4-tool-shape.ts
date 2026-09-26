@@ -228,3 +228,69 @@ export function ga4Property(
 
   return { property, header };
 }
+
+/**
+ * A GA4 window date, as a calendar date in the property's own time zone.
+ *
+ * For the few Tools that filter something GA4 does not filter for them —
+ * `ga4_annotations` reads every annotation on a property and has to decide
+ * locally which fall in the window. They take the same `28daysAgo` /
+ * `yesterday` / `YYYY-MM-DD` a report does, so an Operator can pass one window
+ * to both; and they resolve it in the property's time zone rather than UTC,
+ * which is the bug {@link DEFAULT_START} exists to avoid repeating.
+ *
+ * `null` for anything GA4 would not accept either, so the caller can refuse
+ * with the argument's name.
+ *
+ * @param timeZone the property's reporting time zone, an IANA name. Absent or
+ *        unknown falls back to UTC, and {@link Ga4ResolvedDate.timeZone} says
+ *        which was used so the caller can say so.
+ */
+export function resolveGa4Date(
+  value: string,
+  timeZone: string | undefined,
+  now: Date = new Date(),
+): Ga4ResolvedDate | null {
+  const trimmed = value.trim();
+  const today = todayIn(timeZone, now);
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return { date: trimmed, timeZone: today.timeZone };
+  if (trimmed === "today") return today;
+  if (trimmed === "yesterday") return { ...today, date: shiftDate(today.date, -1) };
+
+  const relative = /^(\d+)daysAgo$/.exec(trimmed);
+  if (relative) return { ...today, date: shiftDate(today.date, -Number(relative[1])) };
+
+  return null;
+}
+
+export interface Ga4ResolvedDate {
+  /** `YYYY-MM-DD`. */
+  date: string;
+  /** The time zone "today" was read in: the property's, or `UTC` when it had none we could use. */
+  timeZone: string;
+}
+
+function todayIn(timeZone: string | undefined, now: Date): Ga4ResolvedDate {
+  if (timeZone) {
+    try {
+      // `en-CA` formats as `YYYY-MM-DD`, which is the only reason it is here.
+      const date = new Intl.DateTimeFormat("en-CA", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(now);
+      return { date, timeZone };
+    } catch {
+      // An IANA name this runtime does not know. UTC, and the caller says so.
+    }
+  }
+  return { date: now.toISOString().slice(0, 10), timeZone: "UTC" };
+}
+
+/** Calendar arithmetic on a `YYYY-MM-DD`, in UTC so no daylight-saving day is 23 hours. */
+function shiftDate(date: string, days: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}

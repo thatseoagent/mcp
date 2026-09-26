@@ -40,7 +40,7 @@ function registeredToolNames(): Set<string> {
  * exactly what has to be caught.
  */
 function mentionedToolNames(text: string): string[] {
-  const candidates = text.match(/\b(?:seo|gsc|ga4|run|crawl|get|sync|ai|entity|pagespeed)_[a-z0-9_]+/g) ?? [];
+  const candidates = text.match(/\b(?:seo|gsc|ga4|run|crawl|get|sync|ai|entity|pagespeed|crux|site|wayback|brand|domain|web|page)_[a-z0-9_]+/g) ?? [];
   return [...new Set(candidates)];
 }
 

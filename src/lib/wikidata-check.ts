@@ -2,8 +2,21 @@
  * Shared Wikidata entity lookup helper.
  * Used by both ai-visibility-tools and entity-mentions-tools.
  */
-import { PAGE_AUDIT_USER_AGENT } from "./bot-identity";
-import { fetchThirdPartyApi } from "./http-client";
+import { callApi, UpstreamUnansweredError, type ThirdPartyService } from "./third-party-api";
+import { UpstreamApiError } from "./upstream-api-error";
+import { WIKIMEDIA_CEILING } from "./wikipedia-check";
+
+/**
+ * Wikidata's search API, as `callApi` takes it. Every request carries our
+ * identity, which Wikidata's API policy asks for as a contactable agent.
+ */
+const WIKIDATA = {
+  name: "Wikidata's search API",
+  timeoutMs: 8_000,
+  // Counted with Wikipedia's lookups: Wikimedia's limit is one for all of its
+  // APIs, the Action API this is included. See `WIKIMEDIA_CEILING`.
+  ...WIKIMEDIA_CEILING,
+} satisfies ThirdPartyService;
 
 export type WikidataMatch = {
   /**
@@ -39,27 +52,22 @@ export async function lookupWikidata(
   language: string | null = null,
 ): Promise<WikidataMatch> {
   try {
-    const qs = new URLSearchParams({
-      action: "wbsearchentities",
-      search: brandName,
-      language: language ?? "en",
-      type: "item",
-      format: "json",
-      limit: "3",
+    // Through `callApi`, which holds the request to Wikimedia's ceiling and puts
+    // it inside the fetch scope. This was a bare `fetch`, so `force_refresh` did
+    // not reach it and nothing held it to any limit — see `third-party-api.ts`
+    // for why the robots gate is exempt here and the ceiling is not.
+    const { body } = await callApi(WIKIDATA, {
+      url: "https://www.wikidata.org/w/api.php",
+      query: {
+        action: "wbsearchentities",
+        search: brandName,
+        language: language ?? "en",
+        type: "item",
+        format: "json",
+        limit: "3",
+      },
     });
-    // Through `fetchThirdPartyApi`, which paces the request and puts it inside
-    // the fetch scope. This was a bare `fetch`, so `force_refresh` did not reach
-    // it and nothing held it to a pace — see that function for why the robots
-    // gate is exempt here and the pace is not.
-    const res = await fetchThirdPartyApi(`https://www.wikidata.org/w/api.php?${qs}`, {
-      timeout: 8_000,
-      // Wikidata is on the signer's exclusion list, so this carries the identity
-      // (their API policy asks for a contactable agent) without a signature.
-      headers: { "User-Agent": PAGE_AUDIT_USER_AGENT },
-    });
-    // Not `found: false`: an HTTP error means the question was never answered.
-    if (!res.ok) return { found: null, reason: `Wikidata search API returned HTTP ${res.status}` };
-    const data = await res.json() as { search?: Array<{ label: string; id: string; description?: string }> };
+    const data = body as { search?: Array<{ label: string; id: string; description?: string }> };
     const bn = brandName.toLowerCase();
     const match = (data.search ?? []).find((r) => {
       const label = r.label.toLowerCase();
@@ -69,8 +77,13 @@ export async function lookupWikidata(
       return { found: true, id: match.id, label: match.label, description: match.description };
     }
     return { found: false };
-  } catch {
-    // Timeout, DNS failure, connection refused. Same reasoning as the !ok branch.
+  } catch (error) {
+    // Not `found: false`: an HTTP error means the question was never answered.
+    if (error instanceof UpstreamApiError && !(error instanceof UpstreamUnansweredError)) {
+      return { found: null, reason: `Wikidata search API returned HTTP ${error.status}` };
+    }
+    // Timeout, an answer that is not JSON, DNS failure, connection refused.
+    // Same reasoning, with no status to name.
     return { found: null, reason: "Wikidata search API did not respond" };
   }
 }

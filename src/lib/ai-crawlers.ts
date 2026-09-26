@@ -36,7 +36,11 @@
  * - `control-token` — not a crawler. Google-Extended and Applebot-Extended are
  *   names robots.txt can address; the fetching is done by Googlebot and
  *   Applebot, and blocking the token changes only what the content may be used
- *   for, never whether it is crawled or ranked.
+ *   for, never whether it is crawled or ranked. "Used for" is wider than
+ *   training in Google's case: Google-Extended also governs grounding in Gemini
+ *   Apps — the model reading Search's index at answer time — so blocking it can
+ *   take a site out of Gemini's answers while leaving Search untouched.
+ *   https://developers.google.com/search/docs/crawling-indexing/google-common-crawlers
  */
 export type AiCrawlerPurpose = "training" | "search" | "user-fetch" | "control-token";
 
@@ -57,6 +61,10 @@ export const AI_CRAWLERS: readonly AiCrawler[] = [
   { name: "Claude-User", description: "Anthropic Claude, on a user's request", purpose: "user-fetch" },
   { name: "PerplexityBot", description: "Perplexity search", purpose: "search" },
   { name: "Perplexity-User", description: "Perplexity, on a user's request", purpose: "user-fetch" },
+  // Mistral documents the three as independent: https://docs.mistral.ai/robots
+  { name: "MistralAI-Index", description: "Mistral search", purpose: "search" },
+  { name: "MistralAI-User", description: "Mistral Vibe, on a user's request", purpose: "user-fetch" },
+  { name: "MistralAI-Training", description: "Mistral training", purpose: "training" },
   { name: "Google-Extended", description: "Google Gemini training and grounding", purpose: "control-token" },
   { name: "Applebot-Extended", description: "Apple Intelligence training", purpose: "control-token" },
   { name: "Meta-ExternalAgent", description: "Meta AI training", purpose: "training" },

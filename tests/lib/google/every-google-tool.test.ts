@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeAll, vi } from "vitest";
 import { readdirSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -82,6 +82,10 @@ const ARGUMENTS: Record<string, unknown> = {
   offset: undefined,
   minImpressions: undefined,
   maxCtr: undefined,
+  steps: [
+    { name: "Landing", eventName: "page_view" },
+    { name: "Sign up", eventName: "sign_up" },
+  ],
 };
 
 const EMPTY_REPORT: Ga4Report = {
@@ -102,6 +106,7 @@ function emptyReader(): GoogleReader {
   return fakeGoogleReader({
     searchConsole: {
       searchAnalytics: async () => [],
+      searchAnalyticsWithMetadata: async () => ({ rows: [] }),
       listSitemaps: async () => [],
     },
     analytics: {
@@ -110,6 +115,15 @@ function emptyReader(): GoogleReader {
       runRealtimeReport: async () => EMPTY_REPORT,
       getMetadata: async () => ({ dimensions: [], metrics: [] }),
       checkCompatibility: async () => ({}),
+      runFunnelReport: async () => ({ funnelTable: { rows: [] } }),
+    },
+    analyticsAdmin: {
+      listDataStreams: async () => [],
+      listKeyEvents: async () => [],
+      listChannelGroups: async () => [],
+      listGoogleAdsLinks: async () => [],
+      listBigQueryLinks: async () => [],
+      listAnnotations: async () => [],
     },
   });
 }
@@ -123,6 +137,7 @@ function refusingReader(): GoogleReader {
     searchConsole: {
       listProperties: refuse,
       searchAnalytics: refuse,
+      searchAnalyticsWithMetadata: refuse,
       inspectUrl: refuse,
       listSitemaps: refuse,
       getSitemap: refuse,
@@ -134,6 +149,22 @@ function refusingReader(): GoogleReader {
       runRealtimeReport: refuse,
       getMetadata: refuse,
       checkCompatibility: refuse,
+      runFunnelReport: refuse,
+    },
+    analyticsAdmin: {
+      getProperty: refuse,
+      getDataRetention: refuse,
+      listDataStreams: refuse,
+      getEnhancedMeasurement: refuse,
+      getDataRedaction: refuse,
+      listKeyEvents: refuse,
+      getAttributionSettings: refuse,
+      getGoogleSignals: refuse,
+      getReportingIdentity: refuse,
+      listChannelGroups: refuse,
+      listGoogleAdsLinks: refuse,
+      listBigQueryLinks: refuse,
+      listAnnotations: refuse,
     },
   });
 }
@@ -169,6 +200,14 @@ async function googleTools(): Promise<Tool[]> {
 
   return tools.sort((a, b) => a.name.localeCompare(b.name));
 }
+
+// The first `googleTools()` imports every Tool module cold, which under a full
+// parallel run outlasts the default five-second test timeout. Paid once here,
+// with room for it, so the first case is not the one charged for the whole
+// directory — every later call is answered from the module cache.
+beforeAll(async () => {
+  await googleTools();
+}, 60_000);
 
 afterEach(() => {
   resetPersistence();

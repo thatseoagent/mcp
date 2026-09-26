@@ -42,6 +42,7 @@ describe("gsc_search_analytics", () => {
     days: undefined,
     type: undefined,
     rowLimit: undefined,
+    freshData: undefined,
   };
 
   it("resolves a bare domain to the Domain Property", async () => {
@@ -212,7 +213,9 @@ describe("gsc_bulk_url_inspection", () => {
     expect(text).toContain("Indexed: 1");
     expect(text).toContain("Not indexed, or not reported as indexed: 1");
     expect(text).toContain("Could not be inspected on this run: 1");
-    expect(text).toContain("=== NOT EVALUATED (1) ===");
+    expect(text).toContain("=== NOT CHECKED (1) ===");
+    expect(text).toContain("not answers about the URLs");
+    expect(text).toMatch(/^ {2}https:\/\/example\.com\/broken — /m);
   });
 
   it("does not let one failure discard the inspections already spent", async () => {
@@ -386,6 +389,8 @@ describe("gsc_sites_health_check", () => {
     const text = textOf(await healthCheck(args, google));
 
     expect(text).toContain("Could not be queried on this run: 1");
-    expect(text).toContain("=== NOT EVALUATED (1) ===");
+    expect(text).toContain("=== NOT CHECKED (1) ===");
+    expect(text).toContain("not answers about these properties");
+    expect(text).toMatch(/^ {2}sc-domain:example\.com — /m);
   });
 });

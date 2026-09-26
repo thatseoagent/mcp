@@ -9,7 +9,6 @@ import { handler as keyEvents } from "@/tools/ga4-key-events";
 import { handler as checkCompatibility } from "@/tools/ga4-check-compatibility";
 import { handler as aiTraffic } from "@/tools/ga4-ai-traffic";
 import { fakeGoogleReader } from "@/lib/google/fake-reader";
-import { classifyAiReferrer } from "@/lib/google/ai-referrers";
 import { resetPersistence } from "@/lib/db/runtime";
 import type { Ga4Report, Ga4ReportQuery } from "@/lib/google/reader";
 
@@ -93,6 +92,14 @@ describe("ga4_run_report", () => {
     expect(asked!.dateRanges[0]).toEqual({ startDate: "28daysAgo", endDate: "yesterday" });
   });
 
+  it("asks for the totals it prints, since Google sends none unless asked", async () => {
+    // The default fake answers without totals unless the query asks, as Google
+    // does. Before the request asked, the totals line was never printed live.
+    const text = textOf(await runReport(args, fakeGoogleReader()));
+
+    expect(text).toContain("Totals across the whole query: sessions 11165");
+  });
+
   it("says a report was truncated rather than letting the rows read as the total", async () => {
     // GA4 returns `rowCount` alongside the rows, so a truncated report looks
     // exactly like a complete one.
@@ -121,8 +128,52 @@ describe("ga4_run_report", () => {
 
     const text = textOf(await runReport(args, google));
 
-    expect(text).toContain("data thresholding");
-    expect(text).toContain("lower bounds, not counts");
+    expect(text).toContain("subject to thresholding");
+    expect(text).toContain("lower bounds rather than counts");
+    expect(text).not.toContain("sampled");
+  });
+
+  it("says a sampled report is an estimate, and does not call it thresholded", async () => {
+    // The two shared one sentence, so a sampled report was told its numbers
+    // were lower bounds. Sampled numbers can be off in either direction.
+    const google = fakeGoogleReader({
+      analytics: {
+        runReport: async () =>
+          report(["page"], ["sessions"], [[["/a"], [10]]], {
+            metadata: { samplingMetadatas: [{ samplesReadCount: "120000", samplingSpaceSize: "1000000" }] },
+          }),
+      },
+    });
+
+    const text = textOf(await runReport(args, google));
+
+    expect(text).toContain("GA4 sampled this report (from about 12% of the data)");
+    expect(text).toContain("estimates");
+    expect(text).not.toContain("thresholding");
+  });
+
+  it("names a truncation Google reports, with its date", async () => {
+    const google = fakeGoogleReader({
+      analytics: {
+        runReport: async () =>
+          report(["page"], ["sessions"], [[["/a"], [10]]], {
+            metadata: {
+              dataTruncationReasons: [
+                {
+                  dataTruncationType: "DATA_TRUNCATION_TYPE_DATE_RANGE",
+                  dataTruncationDate: "2026-03-01",
+                  dataTruncationMessage: "Data before this date is past the property's retention.",
+                },
+              ],
+            },
+          }),
+      },
+    });
+
+    const text = textOf(await runReport(args, google));
+
+    expect(text).toContain("GA4 truncated data in this report (date range) before 2026-03-01");
+    expect(text).toContain("past the property's retention");
   });
 
   it("says an empty report is about the query, not about the property", async () => {
@@ -306,70 +357,34 @@ describe("ga4_check_compatibility", () => {
   });
 });
 
-describe("classifying an AI referrer", () => {
-  it("takes Google's own classification first", () => {
-    expect(classifyAiReferrer("something.example", "ai-assistant")).toBe("google");
-  });
-
-  it("falls back to the host list only for a referral", () => {
-    expect(classifyAiReferrer("chatgpt.com", "referral")).toBe("host-list");
-    expect(classifyAiReferrer("chatgpt.com", "organic")).toBeNull();
-  });
-
-  it("matches a subdomain but never a substring", () => {
-    // Substring matching is what let `bing.com` stand for
-    // `edgeservices.bing.com`, and would just as happily count
-    // `notchatgpt.com.example.org`.
-    expect(classifyAiReferrer("www.perplexity.ai", "referral")).toBe("host-list");
-    expect(classifyAiReferrer("notchatgpt.com.example.org", "referral")).toBeNull();
-  });
-
-  it("does not count an ordinary search engine", () => {
-    // `bing.com` was on the list once, so every referral from Bing's web search
-    // was reported to a site owner as a citation by an AI engine.
-    expect(classifyAiReferrer("bing.com", "referral")).toBeNull();
-    expect(classifyAiReferrer("google.com", "referral")).toBeNull();
-  });
-});
-
 describe("ga4_ai_traffic", () => {
+  // What counts as AI traffic, users' grain, unattributed landings and the
+  // comparison window are `traffic-segments.ts`'s, tested there. These are the
+  // sentences the Operator reads.
   const args = { ...base, propertyId: "1", days: undefined };
 
-  /** A reader answering the three reports this Tool runs, in order. */
+  /** A reader answering this Tool's reports by what each query asks for. */
   function readerFor(options: {
     sources: Array<[string[], number[]]>;
     landings?: Array<[string[], number[]]>;
     previous?: Array<[string[], number[]]>;
-    siteTotal?: number;
+    siteTotal?: number | null;
   }) {
-    let call = 0;
     return fakeGoogleReader({
       analytics: {
-        runReport: async () => {
-          call++;
-          if (call === 1) {
-            return report(
-              ["sessionSource", "sessionMedium"],
-              ["sessions", "totalUsers"],
-              options.sources,
-              {
-                totals: [
-                  { metricValues: [{ value: String(options.siteTotal ?? 1000) }, { value: "800" }] },
-                ],
-              },
-            );
+        runReport: async (query: Ga4ReportQuery) => {
+          if (query.dimensions?.includes("landingPage")) {
+            return report(query.dimensions, ["sessions"], options.landings ?? []);
           }
-          if (call === 2) {
-            return report(
-              ["sessionSource", "sessionMedium", "landingPage"],
-              ["sessions"],
-              options.landings ?? [],
-            );
+          if (query.dateRanges[0].startDate !== "28daysAgo") {
+            return report(["sessionSource", "sessionMedium"], ["sessions"], options.previous ?? []);
           }
+          const total = options.siteTotal === undefined ? 1000 : options.siteTotal;
           return report(
             ["sessionSource", "sessionMedium"],
-            ["sessions"],
-            options.previous ?? [],
+            ["sessions", "totalUsers"],
+            options.sources,
+            total === null ? {} : { totals: [{ metricValues: [{ value: String(total) }, { value: "800" }] }] },
           );
         },
       },
@@ -392,54 +407,62 @@ describe("ga4_ai_traffic", () => {
     expect(text).toContain("Share of all sessions: 10.00% of 1000");
     expect(text).toContain("20 session(s) were counted by this Tool's own host list");
     expect(text).toContain("chatgpt.com — 80 sessions, 60 users");
+    expect(text).toContain("perplexity.ai — 20 sessions, 15 users");
+    expect(text).toContain("(counted by this Tool's host list, not by Google's own classification)");
   });
 
-  it("takes the denominator from GA4's totals, not from adding up rows", async () => {
-    // `limit` truncates, and a share computed over whatever survived it is a
-    // fraction of the wrong number.
-    const google = readerFor({
-      sources: [[["chatgpt.com", "ai-assistant"], [50, 40]]],
-      siteTotal: 5000,
-    });
+  it("says the share is not available when GA4 reported no site total", async () => {
+    const google = readerFor({ sources: [[["chatgpt.com", "ai-assistant"], [50, 40]]], siteTotal: null });
 
     const text = textOf(await aiTraffic(args, google));
 
-    expect(text).toContain("1.00% of 5000");
+    expect(text).toContain("Share of all sessions: not available");
   });
 
-  it("compares against the previous window", async () => {
+  it("says a user count is an upper bound when a source arrived under both mediums", async () => {
     const google = readerFor({
-      sources: [[["chatgpt.com", "ai-assistant"], [150, 100]]],
-      previous: [[["chatgpt.com", "ai-assistant"], [100, 80]]],
-    });
-
-    const text = textOf(await aiTraffic(args, google));
-
-    expect(text).toContain("+50% against the previous window (100)");
-  });
-
-  it("calls a source with no history new rather than infinite growth", async () => {
-    const google = readerFor({ sources: [[["claude.ai", "referral"], [12, 9]]] });
-
-    const text = textOf(await aiTraffic(args, google));
-
-    expect(text).toContain("new — nothing in the previous window");
-  });
-
-  it("reports the landing pages AI assistants send people to", async () => {
-    const google = readerFor({
-      sources: [[["chatgpt.com", "ai-assistant"], [30, 20]]],
-      landings: [
-        [["chatgpt.com", "ai-assistant", "/guide"], [20]],
-        [["chatgpt.com", "ai-assistant", "/pricing"], [10]],
-        [["google.com", "organic", "/ignored"], [900]],
+      sources: [
+        [["claude.ai", "ai-assistant"], [30, 25]],
+        [["claude.ai", "referral"], [10, 8]],
       ],
     });
 
     const text = textOf(await aiTraffic(args, google));
 
+    expect(text).toContain("claude.ai — 40 sessions, up to 33 users");
+    expect(text).toContain("(10 of these counted by this Tool's host list");
+  });
+
+  it("states the change against the previous window, and calls a source with no history new", async () => {
+    const google = readerFor({
+      sources: [
+        [["chatgpt.com", "ai-assistant"], [150, 100]],
+        [["claude.ai", "referral"], [12, 9]],
+      ],
+      previous: [[["chatgpt.com", "ai-assistant"], [100]]],
+    });
+
+    const text = textOf(await aiTraffic(args, google));
+
+    expect(text).toContain("chatgpt.com — 150 sessions, 100 users — +50% against the previous window (100)");
+    expect(text).toContain("claude.ai — 12 sessions, 9 users — new — nothing in the previous window");
+  });
+
+  it("reports the landing pages AI assistants send people to, and the sessions on none", async () => {
+    const google = readerFor({
+      sources: [[["chatgpt.com", "ai-assistant"], [30, 20]]],
+      landings: [
+        [["chatgpt.com", "ai-assistant", "/guide"], [20]],
+        [["chatgpt.com", "ai-assistant", "(not set)"], [10]],
+      ],
+    });
+
+    const text = textOf(await aiTraffic(args, google));
+
+    expect(text).toContain("=== LANDING PAGES (1) ===");
     expect(text).toContain("/guide — 20 sessions");
-    expect(text).not.toContain("/ignored");
+    expect(text).not.toContain("(not set) —");
+    expect(text).toContain("10 AI-referred session(s) had no landing page GA4 could name");
   });
 
   it("says an absence is a measurement, not a verdict on the site", async () => {
@@ -460,7 +483,8 @@ describe("ga4_ai_traffic", () => {
 
     const text = textOf(await aiTraffic(args, google));
 
-    expect(text).toContain("=== WHAT THIS DOES NOT SEE ===");
+    const basis = text.slice(text.indexOf("=== WHAT THIS IS BASED ON ==="));
+    expect(basis).toContain("GA4 only sees AI visits that arrived with a referrer");
     expect(text).toContain("a floor on how");
   });
 });

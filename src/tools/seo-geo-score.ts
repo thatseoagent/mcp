@@ -11,13 +11,15 @@ import { publishingEntity } from "../lib/analyzers/publishing-entity";
 import { readPage } from "../lib/analyzers/parsed-page";
 import { checkTechnicalRequirements } from "../lib/analyzers/technical-requirements";
 import { fetchAuditablePage, refusalText } from "../lib/page-reachability";
-import { readWellKnown, answered, textOrEmpty, type WellKnownRead } from "../lib/well-known";
+import { readWellKnown, textOrEmpty, type WellKnownRead } from "../lib/well-known";
+import { findSitemaps, listingFor, readSitemaps, type SitemapListing } from "../lib/site-sitemap";
 import { lookupKnowledgeGraph, type KnowledgeGraphMatch } from "../lib/knowledge-graph";
 import { renderVerdict } from "../lib/render-check";
 import { renderCoverage } from "../lib/render-scored-checks";
 import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
 import { toolError, toolText } from "../lib/tool-result";
+import { hostKey } from "../lib/url-match";
 
 export const schema = {
   ...refreshable,
@@ -53,91 +55,25 @@ const FAILURE_CONTEXT = "compute the GEO score for this URL";
 const MAX_SCORE = 100;
 
 /**
- * How many child sitemaps an index is followed into. Bounded because a large site
- * can list hundreds, and the freshness check is worth one extra round trip, not
- * fifty.
+ * How many sitemap files the freshness check opens: an index and five of its
+ * children, as when this Tool followed the index itself. Bounded because a large
+ * site can list hundreds, and the freshness check is worth a few extra round
+ * trips, not fifty. A page past the cap comes back "not all of them were
+ * searched", never "not listed".
  */
-const MAX_CHILD_SITEMAPS = 5;
+const SITEMAP_FILES = 6;
 
 /**
- * The sitemap XML that actually contains `pageUrl`.
+ * What the site's sitemaps say about this page.
  *
- * `/sitemap.xml` is frequently a `<sitemapindex>` rather than a list of pages, and
- * the per-URL `<lastmod>` values live in the children. Reading the index directly
- * yields the index's own dates, which belong to the child sitemaps and not to any
- * page. Follows the index far enough to find the page and returns that child's XML;
- * falls back to whatever was fetched when there is no index or no match, so the
- * caller can still tell "not listed" from "no sitemap at all".
+ * Through the one sitemap reader, so the sitemaps robots.txt declares are read
+ * and `/sitemap.xml` is guessed at only when it declares none, an index is
+ * followed into its children and gzip is inflated. The answer reaches the analyzer interpreted: listed or
+ * not, with its `<lastmod>`, or "no sitemap", or why we do not know.
  */
-async function fetchSitemapContaining(origin: string, pageUrl: string): Promise<WellKnownRead> {
-  const root = await readWellKnown(origin, "/sitemap.xml");
-  // `absent` and `unavailable` both travel out untouched: the caller has to be able
-  // to say "there is no sitemap" separately from "we could not read one".
-  if (root.outcome !== "found" || !root.text.includes("<sitemapindex")) return root;
-
-  const allChildLocs = [
-    ...root.text.matchAll(/<sitemap\b[\s\S]*?<loc>\s*([\s\S]*?)\s*<\/loc>/gi),
-  ].map((match) => match[1]);
-  const childLocs = allChildLocs.slice(0, MAX_CHILD_SITEMAPS);
-
-  // The URL parse is guarded and counted rather than left to throw out of the
-  // `.map`, where it escaped this function entirely.
-  const children = await Promise.allSettled(
-    childLocs.map(async (loc) => {
-      const child = new URL(loc);
-      return readWellKnown(child.origin, child.pathname + child.search);
-    }),
-  );
-
-  const bodies: string[] = [];
-  // Every child we did not get to read, for any reason: a rejection, a 5xx, a
-  // timeout, a malformed `<loc>`. `absent` is not one of them — a child sitemap
-  // that 404s is an answer, and it says the page is not in that one.
-  let unread = children.filter((child) => child.status === "rejected").length;
-  for (const child of children) {
-    if (child.status !== "fulfilled") continue;
-    // `answered()` before `textOrEmpty`, which is the rule `well-known.ts` states
-    // in as many words: an `unavailable` child yields `""`, and an empty string is
-    // indistinguishable from a child that listed nothing.
-    if (!answered(child.value)) {
-      unread++;
-      continue;
-    }
-    const text = textOrEmpty(child.value);
-    if (text) bodies.push(text);
-  }
-  // A truncated index is the same kind of ignorance as a child that would not load:
-  // there are sitemaps we did not look in.
-  const truncated = childLocs.length < allChildLocs.length;
-
-  // A positive is conclusive. If the page is listed in a child we actually read,
-  // nothing we failed to read can change that — the same asymmetry
-  // `site-trust-pages` is built on.
-  const containing = bodies.find((body) => body.includes(pageUrl));
-  if (containing) return { outcome: "found", text: containing, status: root.status };
-
-  // A negative is not. Saying "not listed" here means asserting the page is absent
-  // from sitemaps we never opened, and downstream that is a scored failure worth 5
-  // points.
-  if (unread > 0 || truncated) {
-    return {
-      outcome: "unavailable",
-      reason: truncated
-        ? `the sitemap index lists more than ${MAX_CHILD_SITEMAPS} sitemaps, so not all of them were searched`
-        : `${unread} of the ${childLocs.length} sitemaps in the index could not be read`,
-      status: root.status,
-    };
-  }
-
-  // Every child read, none contains the page. Now "not listed" is a finding. The
-  // concatenation still travels so a `<lastmod>` lookup has something to search;
-  // falling back to the index when the children are all empty is deliberate, since
-  // its dates belong to the children.
-  return {
-    outcome: "found",
-    text: bodies.length ? bodies.join("\n") : root.text,
-    status: root.status,
-  };
+async function sitemapListing(origin: string, pageUrl: string): Promise<SitemapListing> {
+  const read = await readSitemaps(await findSitemaps(origin), { maxFiles: SITEMAP_FILES });
+  return listingFor(read, pageUrl);
 }
 
 export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_geo_score", domainOf: domainFromUrl }, async ({ url }: InferSchema<typeof schema>) => {
@@ -170,13 +106,13 @@ export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_geo_score", do
   // The brand is read above the lookup rather than below it. It used to be the
   // bare hostname, TLD and all, so the Knowledge Graph was searched for "bbva.es"
   // while the page's own `Organization.name` sat unparsed twenty lines down.
-  const hostGuess = parsedUrl.hostname.replace(/^www\./, "").split(".")[0];
+  const hostGuess = (hostKey(parsedUrl.hostname) ?? parsedUrl.hostname).split(".")[0];
   const publisher = publishingEntity(schemas, html);
   const brandName = publisher?.name ?? hostGuess;
 
   const [robotsResult, sitemapResult, kgResult, llmsTxtResult] = await Promise.allSettled([
     readWellKnown(origin, "/robots.txt"),
-    fetchSitemapContaining(origin, url),
+    sitemapListing(origin, url),
     lookupKnowledgeGraph(brandName),
     readWellKnown(origin, "/llms.txt", { method: "HEAD", timeout: 6_000 }),
   ]);
@@ -195,8 +131,13 @@ export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_geo_score", do
 
   const robotsRead =
     robotsResult.status === "fulfilled" ? robotsResult.value : unforeseen("robots.txt");
-  const sitemapRead =
-    sitemapResult.status === "fulfilled" ? sitemapResult.value : unforeseen("sitemap");
+  // The one foreseen rejection: the sitemap reader lets our own crawl budget
+  // through rather than calling it a file the site failed to serve. Here it is a
+  // read that did not complete, like any other.
+  const sitemap: SitemapListing =
+    sitemapResult.status === "fulfilled"
+      ? sitemapResult.value
+      : { outcome: "unread", reason: "the sitemap read did not complete" };
   // The record, not just `found`: the reason it carries is the difference between
   // "retry now" and "this deployment has no key".
   const kgLookup: KnowledgeGraphMatch =
@@ -243,7 +184,7 @@ export default defineCachedTool(FAILURE_CONTEXT, { toolName: "seo_geo_score", do
     httpStatus,
     responseHeaders,
     robotsRead,
-    sitemapRead,
+    sitemap,
     llmsTxtExists,
     knowledgeGraph: {
       lookup: kgLookup,

@@ -2,8 +2,10 @@ import { fetchAnyStatus } from "./http-client";
 import { classifyRobotsStatus } from "./analyzers/robots-ruleset";
 
 /**
- * Reading a file the web agrees lives at a fixed path: `/robots.txt`, `/llms.txt`,
- * `/sitemap.xml`.
+ * Reading a file the web agrees lives at a fixed path: `/robots.txt`, `/llms.txt`.
+ * `/sitemap.xml` was the third, and is read by `site-sitemap` now: a sitemap is
+ * often gzipped or an index of others, which is interpretation, and it borrows
+ * this module's three outcomes rather than its fetch.
  *
  * ── Why this exists ──
  *
@@ -34,9 +36,9 @@ import { classifyRobotsStatus } from "./analyzers/robots-ruleset";
  *
  * ── What is deliberately not here ──
  *
- * Interpretation. `robots-ruleset` parses, `sitemap-discovery` chooses which sitemap
- * to trust, `geo-tools` follows a `<sitemapindex>` into its children. This module
- * brings bytes or a reason and stops. It lives in `lib/utils` and not
+ * Interpretation. `robots-ruleset` parses, `site-sitemap` chooses which sitemaps
+ * to read and follows a `<sitemapindex>` into its children. This module brings
+ * bytes or a reason and stops. It lives in `lib/utils` and not
  * `lib/analyzers` for the same reason: `CONTEXT.md` defines an **Analyzer** as pure
  * and network-free, and this does I/O.
  *

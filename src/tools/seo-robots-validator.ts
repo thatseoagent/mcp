@@ -61,7 +61,7 @@ const PURPOSE_HEADINGS: ReadonlyArray<[AiCrawlerPurpose, string]> = [
   ["search", "AI search (blocking these removes the site from that product's answers)"],
   ["user-fetch", "Fetches on a user's request (some operators say robots.txt does not govern these)"],
   ["training", "Model training (blocking these is the training opt-out; search is unaffected)"],
-  ["control-token", "Control tokens (not crawlers; they govern use, never crawling or ranking)"],
+  ["control-token", "Control tokens (not crawlers; they govern use — training, and for Google-Extended grounding in Gemini Apps — never crawling or ranking)"],
 ];
 
 /**

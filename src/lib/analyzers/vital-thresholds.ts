@@ -135,3 +135,23 @@ export function vitalLabel(key: VitalKey): { label: string; rankingSignal: boole
   const t = THRESHOLDS[key];
   return { label: t.label, rankingSignal: t.rankingSignal };
 }
+
+/** The full name — "Largest Contentful Paint" — for a line that spells the acronym out. */
+export function vitalName(key: VitalKey): string {
+  return THRESHOLDS[key].name;
+}
+
+/**
+ * How far a reading sits above the "good" ceiling, as a fraction of that ceiling:
+ * 0 at or under it, 0.6 for an LCP of 4s against 2.5s.
+ *
+ * A fraction rather than the raw excess so the three vitals can be compared and
+ * added: 1.5s of LCP and 0.15 of CLS are in different units, while "60% over"
+ * and "150% over" are not. For `site_vitals_by_traffic`, which orders pages by
+ * how far from good they are; it is a way to rank work, not a measurement of
+ * what the excess costs.
+ */
+export function excessOverGood(key: VitalKey, value: number): number {
+  const { limit } = THRESHOLDS[key];
+  return value <= limit ? 0 : value / limit - 1;
+}

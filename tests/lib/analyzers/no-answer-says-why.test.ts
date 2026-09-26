@@ -114,9 +114,8 @@ describe("every check that could not be evaluated says why", () => {
   it("holds for the GEO sitemap read", () => {
     const cat = scoreFreshness(
       [{ "@type": "Article", dateModified: "2026-08-01" }],
-      { outcome: "unavailable", reason: "the sitemap index's children could not be read", status: 0 },
+      { outcome: "unread", reason: "2 of the 3 sitemap files could not be read" },
       "article",
-      "https://example.com/a",
     );
     assertAllSayWhy(cat.checks, "scoreFreshness");
   });

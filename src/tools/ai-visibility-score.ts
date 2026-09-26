@@ -41,6 +41,7 @@ import { renderCoverage } from "../lib/render-scored-checks";
 import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
 import { toolError, toolText } from "../lib/tool-result";
+import { hostKey } from "../lib/url-match";
 
 export const schema = {
   ...refreshable,
@@ -141,7 +142,7 @@ function describe(check: { name: string; source?: CheckSource }): string {
 
 export default defineCachedTool(FAILURE_CONTEXT, { toolName: "ai_visibility_score", domainOf: domainFromUrl }, async ({ url }: InferSchema<typeof schema>) => {
   const parsedUrl = new URL(url);
-  const hostname = parsedUrl.hostname.replace(/^www\./, "");
+  const hostname = hostKey(parsedUrl.hostname) ?? parsedUrl.hostname;
   const hostGuess = hostname.split(".")[0];
   const displayBrand = hostGuess.charAt(0).toUpperCase() + hostGuess.slice(1);
 

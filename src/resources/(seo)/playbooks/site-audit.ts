@@ -42,6 +42,26 @@ These need nothing configured and work on any site, including one you do not own
 | Is it set up to be cited by AI answers? | \`seo_geo_score\`, \`ai_visibility_score\` |
 | How does it look to an agent? | \`seo_agent_discovery\`, \`seo_agent_navigability\`, \`seo_llms_txt\` |
 | What do its headers and robots say? | \`seo_security_headers\`, \`seo_robots_validator\` |
+| What did the site used to be? | \`wayback_history\` |
+
+## Search Console against the site
+
+With the login, the \`site_*\` Tools cross the Operator's data with the pages themselves.
+Each answers something neither side answers alone:
+
+| Question | Tool |
+|---|---|
+| Which pages does Google show that the site's own links do not reach? | \`site_orphan_pages\` |
+| Do the busiest pages' titles say what they are found for? | \`site_title_query_fit\` |
+| Is the declared markup earning the rich results it is meant to? | \`site_schema_detection_gap\` |
+| Which countries see the site without a version in their language? | \`site_hreflang_country_gap\` |
+| Can the sitemap's dates be believed? | \`site_lastmod_accuracy\` |
+| Which slow pages cost the most search traffic? | \`site_vitals_by_traffic\` |
+
+And from the Google data alone: \`gsc_page_value\` joins search clicks to what the visits
+were worth in GA4, \`gsc_content_decay\` finds pages losing clicks over months, and
+\`ga4_setup_audit\` says whether the Analytics numbers can be trusted in the first place —
+worth running before reading any of them.
 
 ## Reading Search Console numbers
 
@@ -66,5 +86,7 @@ and it is what makes \`seo_metric_trend\` and the before-and-after in \`run_page
 possible. One run is a baseline and no trend; the comparison starts with the second.
 
 Before reading a flat number as a failed change, check \`gsc_crawl_freshness\` — a page
-Google has not recrawled cannot be showing the change yet.`;
+Google has not recrawled cannot be showing the change yet. For a change shipped today,
+\`gsc_hourly_performance\` reads the last hours against the same hours on earlier days, and
+\`ga4_annotations\` shows what the team recorded doing and when.`;
 }

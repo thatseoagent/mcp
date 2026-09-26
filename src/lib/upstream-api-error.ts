@@ -44,9 +44,13 @@ import { logError } from "./log";
  *   OAuth client belongs to.
  * - `key-restricted` — the API key carries an API restriction that leaves this
  *   API out.
+ * - `billing-disabled` — the API is enabled but its project has no billing
+ *   account, which the paid Cloud APIs (Web Risk, Natural Language) require
+ *   even inside their free tier.
  */
 export type GoogleRefusal =
   | { reason: "api-disabled"; api: string; project: string }
+  | { reason: "billing-disabled"; api: string; project: string }
   | { reason: "key-restricted"; api: string };
 
 /** A Google API host, e.g. `searchconsole.googleapis.com`. Nothing looser. */
@@ -78,10 +82,13 @@ export function readGoogleRefusal(body: string): GoogleRefusal | null {
       : null;
     if (!api) continue;
 
-    if (detail.reason === "SERVICE_DISABLED") {
-      const project =
-        typeof metadata.consumer === "string" ? PROJECT.exec(metadata.consumer)?.[1] : undefined;
-      if (project) return { reason: "api-disabled", api, project };
+    const project =
+      typeof metadata.consumer === "string" ? PROJECT.exec(metadata.consumer)?.[1] : undefined;
+    if (detail.reason === "SERVICE_DISABLED" && project) {
+      return { reason: "api-disabled", api, project };
+    }
+    if (detail.reason === "BILLING_DISABLED" && project) {
+      return { reason: "billing-disabled", api, project };
     }
     if (detail.reason === "API_KEY_SERVICE_BLOCKED") {
       return { reason: "key-restricted", api };
@@ -102,6 +109,14 @@ function describeRefusal(refusal: GoogleRefusal): string {
       `credentials belong to. Enable it at https://console.developers.google.com/apis/api/` +
       `${refusal.api}/overview?project=${refusal.project} and retry in a few minutes — ` +
       "the change takes a moment to reach Google's servers. Nothing else is misconfigured."
+    );
+  }
+  if (refusal.reason === "billing-disabled") {
+    return (
+      `The API it needs (${refusal.api}) requires a billing account on the Google Cloud ` +
+      `project these credentials belong to, and that project has none. Link one at ` +
+      `https://console.cloud.google.com/billing/linkedaccount?project=${refusal.project} — ` +
+      "the free tier still applies once it is linked. The key and the API are otherwise fine."
     );
   }
   return (

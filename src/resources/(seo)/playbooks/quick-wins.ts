@@ -34,16 +34,23 @@ not Google's.** Say so when you present the list.
 2. \`gsc_page_query_map\` — which page each lands on, and what else that page ranks for.
    A page ranking for something it was not written for is the most common finding here,
    and often the most useful.
-3. \`seo_analyze_page\` on the two or three pages worth changing, so the suggestion is
+3. \`site_title_query_fit\` — whether each busy page's title and H1 carry the words of
+   the queries it is found for. A title that misses all three of its top queries is the
+   plainest quick win there is.
+4. \`seo_analyze_page\` on the two or three pages worth changing, so the suggestion is
    about that page's actual title, description and headings rather than about titles in
    general.
 
-## The other two kinds of quick win
+## The other kinds of quick win
 
 **Traffic already earned and not converting.** \`gsc_device_gap\` and
 \`gsc_country_opportunity\` find segments where the site is seen and not clicked. Some of
 the device gap is the web rather than the site — mobile results carry more above the
 organic ones — so compare the position column before assuming the page is at fault.
+
+**Traffic that is worth something.** \`gsc_page_value\` joins each page's search clicks to
+its GA4 organic sessions and key events. A page that converts and is barely seen is a
+page worth a better title, and one worth linking to from the pages that are seen.
 
 **Links that go nowhere.** \`crawl_site\` reports broken internal links, duplicate titles
 and duplicate meta descriptions across a whole site. The duplicates are quick wins in the

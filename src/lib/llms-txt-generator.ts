@@ -6,7 +6,7 @@
  * to in a module that only ever reads the site and returns text. The Tool decides
  * *whether* to generate; this decides what a generated file may say.
  */
-import { parseSitemap } from "./sitemap-parser";
+import { findSitemaps, readSitemaps } from "./site-sitemap";
 import { fetchAnyStatus } from "./http-client";
 import { readWellKnown, type WellKnownRead } from "./well-known";
 import { extractPageMeta, fetchPagesMeta, PAGE_META_LIMIT, type PageMeta } from "./page-meta";
@@ -272,9 +272,18 @@ async function fetchHomepageMeta(origin: string): Promise<{ title: string; descr
   }
 }
 
+/**
+ * The site's own URLs, from whichever sitemaps it points at.
+ *
+ * Through the one sitemap reader, so a site that declares its sitemap in
+ * robots.txt rather than at `/sitemap.xml` is enumerated too. A sitemap that
+ * cannot be read still yields `[]`, and the Tool says so: nothing here is
+ * scored, and a generated file with no pages is honest about having none.
+ */
 async function fetchSitemapUrls(origin: string, max = PAGE_META_LIMIT): Promise<string[]> {
   try {
-    const urls = await parseSitemap(`${origin}/sitemap.xml`, max);
+    const read = await readSitemaps(await findSitemaps(origin), { maxUrls: max });
+    const urls = read.entries.map((entry) => entry.loc);
     return [
       ...new Set(
         urls
@@ -284,6 +293,9 @@ async function fetchSitemapUrls(origin: string, max = PAGE_META_LIMIT): Promise<
       ),
     ];
   } catch {
+    // The reader records every file it could not read rather than throwing, so
+    // what lands here is our own crawl budget running out. It yielded `[]`
+    // before the reader was shared, and still does.
     return [];
   }
 }

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
 import { refreshable } from "../lib/with-cache";
+import { basisSection } from "../lib/render-basis";
 import { toolText } from "../lib/tool-result";
 import { withPropertyFallback } from "../lib/google/property";
 import { renderSitemap } from "../lib/google/sitemap-report";
@@ -55,10 +56,14 @@ export async function handler(
   lines.push("");
   lines.push(...renderSitemap(sitemap));
 
-  lines.push("");
-  lines.push("=== NOTE ===");
-  lines.push("These are Search Console's own figures, not a fresh read of the file. To check");
-  lines.push("what the sitemap currently contains, fetch it directly.");
+  lines.push(
+    ...basisSection({
+      read: [
+        "These are Search Console's own figures, not a fresh read of the file. To check",
+        "what the sitemap currently contains, fetch it directly.",
+      ],
+    }),
+  );
 
   return toolText(lines.join("\n"));
 }

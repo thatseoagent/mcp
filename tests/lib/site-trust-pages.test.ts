@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { resolveTrustPages, showsTrustPage } from "@/lib/site-trust-pages";
 import { readPage } from "@/lib/analyzers/parsed-page";
-import { serveHtml, restoreFetch } from "../helpers/serve-html";
+import { serve, serveHtml, restoreFetch } from "../helpers/serve-html";
 import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 /**
@@ -53,8 +53,7 @@ describe("showsTrustPage reads one document by one rule", () => {
 
 describe("resolveTrustPages", () => {
   it("spends no request when the page already answers every kind", async () => {
-    const fetchSpy = vi.fn();
-    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+    const fetchSpy = serve({});
 
     const found = await resolveTrustPages("https://example.com/deep/article", {
       privacy: true,
@@ -69,8 +68,7 @@ describe("resolveTrustPages", () => {
   it("spends no request when the analyzed page IS the home", async () => {
     // The site-refresh path: `url` is the domain root, so there is no second room to
     // look in and the negative is already settled.
-    const fetchSpy = vi.fn();
-    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+    const fetchSpy = serve({});
 
     const found = await resolveTrustPages("https://example.com", { about: false });
 

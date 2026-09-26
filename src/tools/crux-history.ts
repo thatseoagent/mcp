@@ -2,11 +2,15 @@ import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import {
   readCruxHistory,
+  diagnosticsAt,
   CRUX_KEY_REQUIREMENT,
+  COLLECTION_PERIOD_COUNT,
+  type CruxDiagnosticSeries,
   type CruxHistory,
   type CruxSeries,
   type FormFactor,
 } from "../lib/crux-history";
+import { bfcacheHitRate, describeDiagnostics, formatMs, LCP_SUBPARTS } from "../lib/crux-record";
 import {
   formatVital,
   rateVital,
@@ -36,11 +40,14 @@ export const schema = {
 export const metadata: ToolMetadata = {
   name: "crux_history",
   description:
-    "Core Web Vitals from real Chrome users over the last 25 weekly collection periods, " +
-    "for a page or a whole origin, from Google's Chrome UX Report History API. The Tool to " +
-    "answer \"did the performance fix move anything?\" — pagespeed_insights reports only " +
-    "the current 28-day reading. Each reading is rated against Google's thresholds and " +
-    "the output says when the rating last changed. " +
+    `Core Web Vitals from real Chrome users over the last ${COLLECTION_PERIOD_COUNT} weekly ` +
+    "collection periods (about nine months), for a page or a whole origin, from Google's " +
+    "Chrome UX Report History API. The Tool to answer \"did the performance fix move " +
+    "anything?\" — pagespeed_insights reports only the current 28-day reading. Each reading " +
+    "is rated against Google's thresholds and the output says when the rating last changed. " +
+    "Also reports, unrated, the diagnostics that explain a change: the four parts of an " +
+    "image LCP, whether the LCP element is text or an image, how visits navigated " +
+    "(including the back/forward cache share) and round trip time. " +
     `Needs ${CRUX_KEY_REQUIREMENT.variable} with the Chrome UX Report API enabled; without ` +
     "it this Tool returns an error saying so.",
   annotations: {
@@ -68,7 +75,7 @@ const RANKING_VITALS: VitalKey[] = ["lcp", "inp", "cls"];
 
 /**
  * Said before any number, because the series invites one misreading above all:
- * treating 25 overlapping windows as 25 independent weekly measurements.
+ * treating 40 overlapping windows as 40 independent weekly measurements.
  */
 const HOW_TO_READ = [
   "Each reading is the 75th percentile of real Chrome visits over a 28-day window.",
@@ -174,6 +181,52 @@ function renderAssessment(history: CruxHistory): string[] {
   ];
 }
 
+/** "first → latest" for one unrated series, or nothing when it has no reading. */
+function changeLine(label: string, values: Array<number | null>, show: (v: number) => string): string[] {
+  const span = ends(values);
+  if (!span) return [];
+  const first = values[span.first] as number;
+  const last = values[span.last] as number;
+  return [`  ${label}: ${span.first === span.last ? show(last) : `${show(first)} → ${show(last)}`}`];
+}
+
+/**
+ * The diagnostics: the latest period described, then how each one moved.
+ *
+ * Latest plus direction, rather than a second table, because these exist to
+ * explain a vital's movement — "LCP improved, and it was the load delay that
+ * went" — and that sentence needs the two ends, not forty rows.
+ */
+function renderDiagnostics(series: CruxDiagnosticSeries, periodEnds: string[]): string[] {
+  const latest = periodEnds.length - 1;
+  const lines = [
+    "=== FIELD DIAGNOSTICS (no Google threshold, so not rated) ===",
+    "",
+    `Latest period (window ending ${periodEnds[latest] ?? "unknown"}):`,
+    ...describeDiagnostics(diagnosticsAt(series, latest)),
+  ];
+
+  const moves: string[] = [];
+  for (const { part, p75s } of series.lcpSubparts) {
+    const label = LCP_SUBPARTS.find((s) => s.part === part)?.label ?? part;
+    moves.push(...changeLine(`Image LCP ${label.toLowerCase()} (p75)`, p75s, formatMs));
+  }
+  const percentOf = (v: number) => `${Math.round(v * 100)}%`;
+  if (series.lcpResourceType.image) {
+    moves.push(...changeLine("LCP element an image", series.lcpResourceType.image, percentOf));
+  }
+  const bfcache = periodEnds.map((_, i) => bfcacheHitRate(diagnosticsAt(series, i).navigationTypes));
+  moves.push(...changeLine("bfcache share of back/forward navigations", bfcache, percentOf));
+  moves.push(...changeLine("Round trip time (p75)", series.roundTripTime, formatMs));
+
+  if (moves.length > 0) {
+    lines.push("");
+    lines.push("Across the series (earliest reading → latest):");
+    lines.push(...moves);
+  }
+  return lines;
+}
+
 /** Every period, one line each, so the shape is visible without a chart. */
 function renderTable(history: CruxHistory): string[] {
   const columns = RANKING_VITALS.map((key) => history.series.find((s) => s.key === key));
@@ -249,6 +302,9 @@ export default defineCachedTool(
         lines.push(...renderVital(series, history.periodEnds));
       }
     }
+
+    lines.push("");
+    lines.push(...renderDiagnostics(history.diagnostics, history.periodEnds));
 
     lines.push("");
     lines.push("=== BY PERIOD (p75) ===");

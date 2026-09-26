@@ -6,6 +6,8 @@
  * `bing.com` is absent is a correction somebody had to make after shipping the
  * mistake.
  */
+import { hostKey } from "../url-match";
+
 /**
  * The medium GA4 assigns when it recognises the referrer as an AI assistant.
  *
@@ -75,7 +77,10 @@ export function classifyAiReferrer(source: string, medium: string): AiReferrerVe
   if (m === AI_ASSISTANT_MEDIUM) return "google";
   if (m !== "referral") return null;
 
-  const host = source.toLowerCase().replace(/^www\./, "");
+  // `hostKey`'s host, then a suffix match on it: a subdomain is the engine's
+  // without being the same host, which is where this differs from identity.
+  const host = hostKey(source);
+  if (host === null) return null;
   return AI_REFERRER_HOSTS.some((h) => host === h || host.endsWith(`.${h}`))
     ? "host-list"
     : null;

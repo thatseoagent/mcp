@@ -167,6 +167,7 @@ import { tally, notScored, type Scorable } from "./scored-checks";
 import { parseRobots } from "./robots-ruleset";
 import { TRAINING_CRAWLERS } from "../ai-crawlers";
 import { answered, textOrEmpty, type WellKnownRead } from "../well-known";
+import type { SitemapListing } from "../site-sitemap";
 import { countWords } from "../text-analyzer";
 import {
   countQuestionHeadings,
@@ -400,70 +401,34 @@ export function scoreStructuredData(schemas: readonly unknown[], schemaTypes: Se
 }
 
 /**
- * The `<lastmod>` a sitemap publishes for one specific page, matched by `<loc>`.
+ * A sitemap answer already interpreted, not the sitemap: `site-sitemap.ts`
+ * reads the files, matches the page by `url-match`'s identity and decides
+ * whether its absence proves anything. This check only says what each answer
+ * means for freshness.
  *
- * Returns `null` when the page is absent from the XML — which is a different answer
- * from "present with no lastmod", and the caller reports them differently.
+ * It used to take the XML, and run its own regex and its own URL normaliser
+ * over it, behind a Tool that followed the index with a third. The
+ * distinctions it reports did not change; who works them out did. One branch
+ * went: "no page URL supplied" could only happen to a caller that did not say
+ * which page it meant, and an answer about one page cannot be asked without one.
  *
- * URL comparison ignores a trailing slash and is case-insensitive on scheme and host
- * only: a sitemap that lists `https://example.com/a/` describes the same page as
- * `https://example.com/a`, but `/A` is a different path on a case-sensitive server.
- */
-/**
- * Un-exported: `scoreFreshness` at the one call site below is its only reader.
- * It was exported with the rest of the scorers and nothing outside this module,
- * not even a test, ever imported it.
- */
-function findSitemapLastmod(
-  sitemapXml: string,
-  pageUrl: string
-): { lastmod: string | null } | null {
-  const normalize = (u: string): string => {
-    try {
-      const parsed = new URL(u.trim());
-      const path = parsed.pathname.replace(/\/+$/, "");
-      return `${parsed.protocol.toLowerCase()}//${parsed.host.toLowerCase()}${path}${parsed.search}`;
-    } catch {
-      return u.trim().replace(/\/+$/, "");
-    }
-  };
-
-  const target = normalize(pageUrl);
-
-  for (const block of sitemapXml.match(/<url\b[\s\S]*?<\/url>/gi) ?? []) {
-    const loc = block.match(/<loc>\s*([\s\S]*?)\s*<\/loc>/i)?.[1];
-    if (!loc || normalize(loc) !== target) continue;
-    const lastmod = block.match(/<lastmod>\s*([\s\S]*?)\s*<\/lastmod>/i)?.[1];
-    return { lastmod: lastmod ?? null };
-  }
-
-  return null;
-}
-
-/**
- * `pageUrl` is optional so the check can say why it could not run rather than
- * silently comparing against an unrelated entry, which is what it used to do.
- */
-/**
- * `sitemapRead` rather than the XML, for one branch out of five.
+ * The sitemap-consistency check below resolves to `passed: false` for four
+ * distinct states, and only three of them are findings about the site. "Page is
+ * not listed", "no lastmod published" and "no sitemap at all" are real, and stay
+ * scored. "We could not read a sitemap" is not: it is the same unanswered read
+ * as the four bot checks, and it cost 5 points (#337). That includes an index
+ * whose children did not all load, or that lists more than the read opens —
+ * there are sitemaps we did not look in, so "not listed" would be a guess.
  *
- * The sitemap-consistency check below resolves to `passed: false` for five distinct
- * states, and only three of them are findings about the site. "Page is not listed"
- * and "no lastmod published" are real, and stay scored. "We could not read a
- * sitemap" is not: it is the same unanswered read as the four bot checks, and it
- * cost 5 points (#337).
- *
- * Deliberately narrow. `absent` — the site has no sitemap at all — stays a scored
- * failure, because that IS a finding, and telling the two apart is exactly what the
- * three-state read is for.
+ * Deliberately narrow. `no-sitemap` — the site has no sitemap at all — stays a
+ * scored failure, because that IS a finding, and telling the two apart is
+ * exactly what the three-state read is for.
  */
 export function scoreFreshness(
   schemas: readonly unknown[],
-  sitemapRead: WellKnownRead,
+  sitemap: SitemapListing,
   pageType: PageKind,
-  pageUrl?: string
 ): GeoCategory {
-  const sitemapXml = textOrEmpty(sitemapRead);
   const checks: GeoCheck[] = [];
 
   const freshnessNA = isUndatedPage(pageType);
@@ -507,29 +472,25 @@ export function scoreFreshness(
     // index's date to the page's — thatseoagent.com reported "differs by 47 days" while
     // its child sitemap carried the correct per-URL date. On any multi-URL sitemap it
     // compared some other page's date. Both produce a failure the site cannot act on.
-    const entry = pageUrl ? findSitemapLastmod(sitemapXml, pageUrl) : null;
+    // The answer arrives matched to this page now, so there is no document to misread.
     let sitemapConsistent = false;
     let sitemapDetail: string;
 
-    if (!answered(sitemapRead)) {
-      sitemapDetail = notScored(
-        sitemapRead.outcome === "unavailable" ? sitemapRead.reason : "the sitemap could not be read on this run",
-      );
-    } else if (!sitemapXml.trim()) {
+    if (sitemap.outcome === "unread") {
+      sitemapDetail = notScored(sitemap.reason);
+    } else if (sitemap.outcome === "no-sitemap") {
       sitemapDetail = "No sitemap available to check";
-    } else if (!pageUrl) {
-      sitemapDetail = "No page URL supplied, cannot match a sitemap entry";
-    } else if (!entry) {
+    } else if (sitemap.outcome === "not-listed") {
       // A distinct, more actionable finding than a date mismatch: a page missing from
       // the sitemap has a discovery problem, not a freshness one.
       sitemapDetail = "Page is not listed in the sitemap";
-    } else if (!entry.lastmod) {
+    } else if (!sitemap.lastmod) {
       sitemapDetail = "Sitemap lists this page but publishes no lastmod for it";
     } else if (!dateModifiedStr) {
       sitemapDetail = "Sitemap has lastmod for this page but the schema has no dateModified";
     } else {
       const diffDays =
-        Math.abs(new Date(entry.lastmod).getTime() - new Date(dateModifiedStr).getTime()) /
+        Math.abs(new Date(sitemap.lastmod).getTime() - new Date(dateModifiedStr).getTime()) /
         (1000 * 60 * 60 * 24);
       sitemapConsistent = diffDays <= 7;
       sitemapDetail = sitemapConsistent
@@ -541,7 +502,7 @@ export function scoreFreshness(
       passed: sitemapConsistent,
       label: LABEL.sitemapLastmod, source: FRESHNESS_HEURISTIC,
       points: 5,
-      status: answered(sitemapRead) ? undefined : "not-evaluated",
+      status: sitemap.outcome === "unread" ? "not-evaluated" : undefined,
       detail: sitemapDetail,
     });
   }
@@ -1310,8 +1271,8 @@ export interface GeoInput {
   responseHeaders: Record<string, string>;
   /** What the site's robots.txt said, or why we do not know. */
   robotsRead: WellKnownRead;
-  /** The sitemap that actually contains this page, resolved by the caller. */
-  sitemapRead: WellKnownRead;
+  /** What the site's sitemaps say about this page, resolved by the caller. */
+  sitemap: SitemapListing;
   /** Whether the site publishes an llms.txt. Worth 0 points, and says so. */
   llmsTxtExists: boolean;
   /** The brand's Knowledge Graph lookup, and whether a key was configured. */
@@ -1354,7 +1315,7 @@ export interface GeoReading extends GeoScoreResult {
  * them any more.
  */
 export function scoreGeo(input: GeoInput): GeoReading {
-  const { page, html, httpStatus, responseHeaders, robotsRead, sitemapRead } = input;
+  const { page, html, httpStatus, responseHeaders, robotsRead, sitemap } = input;
   // The four scorers that read the page's *words* take the document, because
   // `html` and the reading of it are one thing — "a data clump wearing a
   // parameter list", as `parsed-page.ts` puts it about the signatures it fixed
@@ -1366,7 +1327,7 @@ export function scoreGeo(input: GeoInput): GeoReading {
 
   const categories: GeoCategory[] = [
     scoreStructuredData(schemas, schemaTypes, pageType),
-    scoreFreshness(schemas, sitemapRead, pageType, page.url),
+    scoreFreshness(schemas, sitemap, pageType),
     scoreContentStructure(page, pageType),
     scoreAiCrawlerAccess(robotsRead, html, input.llmsTxtExists),
     scoreAuthorEeat(html, schemas, pageType),

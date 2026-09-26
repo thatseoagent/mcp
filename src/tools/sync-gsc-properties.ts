@@ -2,6 +2,7 @@ import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
 import { refreshable } from "../lib/with-cache";
+import { basisSection } from "../lib/render-basis";
 import { toolText } from "../lib/tool-result";
 import { accessFor, type PropertyAccess } from "../lib/google/property-access";
 import { listSites, registerSite, rememberGoogleProperty, NoDatabaseError } from "../lib/sites";
@@ -132,11 +133,15 @@ export async function handler({ domains }: InferSchema<typeof schema>, google: G
     }
   }
 
-  lines.push("");
-  lines.push("=== HOW THIS WAS DECIDED ===");
-  lines.push("Every line above was answered by asking Google just now. Nothing about access is");
-  lines.push("stored, so a property you verify or lose after this run will be reflected the");
-  lines.push("next time any Tool asks — you do not need to re-run this.");
+  lines.push(
+    ...basisSection({
+      read: ["Every line above was answered by asking Google just now."],
+      limits: [
+        "Nothing about access is stored, so a property you verify or lose after this run will be",
+        "reflected the next time any Tool asks — you do not need to re-run this.",
+      ],
+    }),
+  );
 
   return toolText(lines.join("\n"));
 }

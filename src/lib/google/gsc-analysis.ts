@@ -377,3 +377,284 @@ export function segmentShares(rows: readonly SearchAnalyticsRow[]): SegmentShare
     })
     .sort((a, b) => b.totals.impressions - a.totals.impressions);
 }
+
+// ── Hours ────────────────────────────────────────────────────────────────────
+
+export interface HourKey {
+  /** `YYYY-MM-DD`, the Pacific day the hour belongs to. */
+  date: string;
+  /** `00` to `23`, Pacific. */
+  hour: string;
+  /** Milliseconds since the epoch, for ordering and for comparing with `firstIncompleteHour`. */
+  instant: number;
+}
+
+/**
+ * `2025-04-07T14:00:00-07:00`, read into its day, its hour and its instant.
+ *
+ * The day and hour are read off the string rather than computed from the
+ * instant, because the string is already in Pacific Time and a `Date` would
+ * move it into whatever timezone the server runs in. `null` for anything else,
+ * so a key that is not an hour is left out rather than parsed into a wrong one.
+ */
+export function parseHourKey(key: string): HourKey | null {
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}):\d{2}:\d{2}(?:[+-]\d{2}:\d{2}|Z)$/.exec(key);
+  if (!match) return null;
+  const instant = Date.parse(key);
+  if (!Number.isFinite(instant)) return null;
+  return { date: match[1], hour: match[2], instant };
+}
+
+export interface HourReading {
+  date: string;
+  hour: string;
+  clicks: number;
+  impressions: number;
+  /** At or after Google's first incomplete hour: still being collected, so still rising. */
+  partial: boolean;
+  /**
+   * Mean clicks in the same hour on the earlier days of the window, counting
+   * only hours Google has finished. `null` when there is no earlier day to
+   * compare with, which is an absence and not a zero.
+   */
+  baselineClicks: number | null;
+  baselineImpressions: number | null;
+  /** How many earlier days the baseline is the mean of. */
+  baselineDays: number;
+  /** Clicks in the same hour exactly seven days earlier, when the window reaches that far. */
+  weekAgoClicks: number | null;
+}
+
+/**
+ * Every hour, with the same hour on the days before it as its baseline.
+ *
+ * ── Why the same hour, and not the hour before ──
+ *
+ * Search traffic has a daily shape: three in the morning is quiet everywhere,
+ * lunchtime is not. Comparing 14:00 with 13:00 measures that shape, and a deploy
+ * at 14:00 on a site whose afternoons are always busier would look like a win
+ * every day. Comparing 14:00 today with 14:00 on the previous days holds the
+ * shape still, which is what Google's own announcement suggests the hourly data
+ * is for — "compare the most recent day to the same day in the previous week".
+ *
+ * Partial hours are kept, marked, and left out of every baseline: a baseline
+ * that averaged in an hour still being counted would be pulled down by it.
+ *
+ * Takes rows dimensioned `["hour"]`. Rows whose key is not an hour are dropped,
+ * and counted by the caller from the difference in lengths.
+ */
+export function hourlyReadings(
+  rows: readonly SearchAnalyticsRow[],
+  firstIncompleteHour?: string,
+): HourReading[] {
+  const incompleteFrom = firstIncompleteHour ? Date.parse(firstIncompleteHour) : Number.NaN;
+
+  const hours = rows
+    .map((row) => ({ row, key: parseHourKey(keyOf(row)) }))
+    .filter((entry): entry is { row: SearchAnalyticsRow; key: HourKey } => entry.key !== null)
+    .map(({ row, key }) => ({
+      ...key,
+      clicks: row.clicks,
+      impressions: row.impressions,
+      partial: Number.isFinite(incompleteFrom) && key.instant >= incompleteFrom,
+    }))
+    .sort((a, b) => a.instant - b.instant);
+
+  const byDateHour = new Map(hours.map((hour) => [`${hour.date} ${hour.hour}`, hour]));
+
+  return hours.map((hour) => {
+    const earlier = hours.filter(
+      (other) => other.hour === hour.hour && other.date < hour.date && !other.partial,
+    );
+    const weekAgo = byDateHour.get(`${shiftDay(hour.date, -7)} ${hour.hour}`);
+    return {
+      date: hour.date,
+      hour: hour.hour,
+      clicks: hour.clicks,
+      impressions: hour.impressions,
+      partial: hour.partial,
+      baselineClicks: earlier.length > 0 ? mean(earlier.map((other) => other.clicks)) : null,
+      baselineImpressions: earlier.length > 0 ? mean(earlier.map((other) => other.impressions)) : null,
+      baselineDays: earlier.length,
+      weekAgoClicks: weekAgo && !weekAgo.partial ? weekAgo.clicks : null,
+    };
+  });
+}
+
+function mean(values: readonly number[]): number {
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+/** A `YYYY-MM-DD` moved by whole days. */
+function shiftDay(date: string, days: number): string {
+  const moved = new Date(`${date}T00:00:00Z`);
+  moved.setUTCDate(moved.getUTCDate() + days);
+  return moved.toISOString().slice(0, 10);
+}
+
+// ── Content decay ────────────────────────────────────────────────────────────
+
+export interface DecayConfig {
+  /**
+   * The peak three-month average, in clicks per month, a page must have had for
+   * a fall to count. Below it, a page going from 6 clicks a month to 2 is a
+   * 66% decline that nobody should spend an afternoon on.
+   */
+  minPeakClicks: number;
+  /** How far below its peak the last three months must be, as a percentage. */
+  minDecline: number;
+}
+
+/**
+ * What counts as decay, and both numbers are **ours**.
+ *
+ * Google publishes no notion of content decay. Twenty clicks a month at peak is
+ * the smallest page whose loss is worth a line in a report; 40% is a fall large
+ * enough not to be a quiet quarter, and small enough to catch a page before it
+ * has lost everything.
+ */
+export const DEFAULT_DECAY: DecayConfig = { minPeakClicks: 20, minDecline: 40 };
+
+/** Three months: long enough to smooth one bad month, short enough to still be "recent". */
+export const DECAY_SPAN = 3;
+
+/**
+ * Clicks per page per month, from one `["page"]` read per month.
+ *
+ * A page absent from a month's read is a zero *in these rows*. For pages that
+ * is a smaller lie than for queries — Search Console does not anonymise pages —
+ * but a page below the read's row limit is absent too, which is why the Tool
+ * says which months were truncated.
+ */
+export function monthlyClicksByPage(
+  months: ReadonlyArray<{ month: string; rows: readonly SearchAnalyticsRow[] }>,
+): Map<string, number[]> {
+  const byPage = new Map<string, number[]>();
+  months.forEach(({ rows }, index) => {
+    for (const row of rows) {
+      const page = keyOf(row);
+      const series = byPage.get(page) ?? new Array<number>(months.length).fill(0);
+      series[index] += row.clicks;
+      byPage.set(page, series);
+    }
+  });
+  return byPage;
+}
+
+export type DecayReading =
+  /** Down against its own peak, and down against the same months a year earlier. */
+  | "decay"
+  /** Down against its peak, but the same months last year were about as low. */
+  | "seasonal"
+  /** Down against its peak, and there is no year-earlier counterpart to tell the two apart. */
+  | "unknown";
+
+export interface DecayingPage {
+  page: string;
+  /** Mean monthly clicks over the best three consecutive months before the last three. */
+  peakAverage: number;
+  /** `YYYY-MM` of the first month of that peak. */
+  peakFrom: string;
+  /** Mean monthly clicks over the last three months. */
+  recentAverage: number;
+  /** 0 to 1: how far below the peak the last three months are. */
+  decline: number;
+  /**
+   * Clicks in the recent months against the same months a year earlier, as a
+   * ratio. `null` when the series does not reach back a year for any of them.
+   */
+  yearOverYear: number | null;
+  /** How many of the recent months had a year-earlier counterpart. */
+  yearOverYearMonths: number;
+  reading: DecayReading;
+}
+
+/**
+ * When the same months a year earlier count as "about as low".
+ *
+ * Within 20% of last year's clicks for the same months: a page that did this
+ * last year too is following the calendar. Ours, like the thresholds above.
+ */
+export const SEASONAL_RATIO = 0.8;
+
+/**
+ * Pages whose last three months are well below their best three.
+ *
+ * ── Peak against recent, not first against last ──
+ *
+ * First month against last would call a page that launched mid-window and grew
+ * a success, and a page that spiked once and settled a collapse. The best three
+ * consecutive months before the recent three is the page's own high-water mark,
+ * and it cannot overlap the months it is compared with.
+ *
+ * ── Seasonality, as far as sixteen months can tell ──
+ *
+ * A ski-hire page in July is below its January peak every year. When the series
+ * reaches back twelve months for any of the recent months, their clicks are
+ * compared with the same months a year earlier: about as low then means the
+ * calendar, lower now means decay. With fewer than thirteen months there is no
+ * counterpart, and the reading says it cannot tell rather than guessing. Either
+ * way it is a heuristic over one page's clicks, not a model of seasonality.
+ *
+ * @param months `YYYY-MM`, oldest first, the same length as every series.
+ */
+export function decayingPages(
+  months: readonly string[],
+  byPage: ReadonlyMap<string, readonly number[]>,
+  config: DecayConfig = DEFAULT_DECAY,
+): DecayingPage[] {
+  // Two spans at least: one to peak in, one to be recent.
+  if (months.length < DECAY_SPAN * 2) return [];
+
+  const recentStart = months.length - DECAY_SPAN;
+  const findings: DecayingPage[] = [];
+
+  for (const [page, series] of byPage) {
+    let peakAverage = 0;
+    let peakIndex = -1;
+    for (let start = 0; start + DECAY_SPAN <= recentStart; start++) {
+      const average = mean(series.slice(start, start + DECAY_SPAN));
+      if (average > peakAverage) {
+        peakAverage = average;
+        peakIndex = start;
+      }
+    }
+    if (peakIndex < 0 || peakAverage < config.minPeakClicks) continue;
+
+    const recentAverage = mean(series.slice(recentStart));
+    const decline = 1 - recentAverage / peakAverage;
+    if (decline * 100 < config.minDecline) continue;
+
+    let now = 0;
+    let before = 0;
+    let paired = 0;
+    for (let index = recentStart; index < months.length; index++) {
+      if (index - 12 < 0) continue;
+      now += series[index];
+      before += series[index - 12];
+      paired++;
+    }
+    // A year-earlier total of zero is not a baseline: the page may not have
+    // existed, and a ratio against nothing is a division nobody should print.
+    const yearOverYear = paired > 0 && before > 0 ? now / before : null;
+    const reading: DecayReading =
+      yearOverYear === null ? "unknown" : yearOverYear >= SEASONAL_RATIO ? "seasonal" : "decay";
+
+    findings.push({
+      page,
+      peakAverage,
+      peakFrom: months[peakIndex],
+      recentAverage,
+      decline,
+      yearOverYear,
+      yearOverYearMonths: paired,
+      reading,
+    });
+  }
+
+  // Ranked by clicks lost a month, which is the size of the problem; a 90% fall
+  // on a small page matters less than a 45% fall on the busiest one.
+  return findings.sort(
+    (a, b) => b.peakAverage - b.recentAverage - (a.peakAverage - a.recentAverage),
+  );
+}

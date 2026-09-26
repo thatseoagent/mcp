@@ -34,6 +34,8 @@ const ARTICLE = `<!DOCTYPE html><html lang="en"><body><article>
 </article></body></html>`;
 
 const found = { outcome: "found" as const, text: "", status: 200 };
+/** What an empty `found` sitemap used to resolve to: nothing to match against. */
+const noSitemap = { outcome: "no-sitemap" as const };
 
 function reading(
   overrides: Partial<Parameters<typeof scoreGeo>[0]> = {},
@@ -44,7 +46,7 @@ function reading(
     httpStatus: 200,
     responseHeaders: {},
     robotsRead: found,
-    sitemapRead: found,
+    sitemap: noSitemap,
     llmsTxtExists: false,
     knowledgeGraph: { lookup: { found: false }, keyConfigured: false },
     ...overrides,
@@ -162,7 +164,7 @@ describe("the GEO reading", () => {
       httpStatus: 200,
       responseHeaders: {},
       robotsRead: found,
-      sitemapRead: found,
+      sitemap: noSitemap,
       llmsTxtExists: false,
       knowledgeGraph: { lookup: { found: false }, keyConfigured: false },
     });

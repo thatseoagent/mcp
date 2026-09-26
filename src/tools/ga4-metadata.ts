@@ -93,7 +93,7 @@ export async function handler(
   lines.push(...renderFields("METRICS", found.metrics ?? [], search));
 
   lines.push("");
-  lines.push("=== NOTE ===");
+  lines.push("=== USING THESE ===");
   lines.push("Fields marked [custom] exist only on this property. Not every pair of these can");
   lines.push("be reported together — ga4_check_compatibility answers that before you spend a");
   lines.push("report on a combination GA4 will reject.");

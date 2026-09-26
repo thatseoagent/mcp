@@ -2,11 +2,10 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import cruxHistory from "@/tools/crux-history";
 import { readHistory } from "@/lib/crux-history";
 import { resetAllSingleFlightCaches } from "@/lib/single-flight";
-
-const originalFetch = globalThis.fetch;
+import { requestsOf, serve } from "../helpers/serve";
 
 afterEach(() => {
-  globalThis.fetch = originalFetch;
+  vi.unstubAllGlobals();
   resetAllSingleFlightCaches();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
@@ -21,14 +20,13 @@ const run = (args: { url: string; scope?: "page" | "origin"; device?: "phone" | 
 
 /** Answer the CrUX endpoint with one payload, and record what was asked. */
 function answerWith(payload: unknown, status = 200) {
-  const mock = vi.fn(async () =>
-    new Response(JSON.stringify(payload), {
+  return serve({
+    "chromeuxreport.googleapis.com": {
       status,
+      body: JSON.stringify(payload),
       headers: { "content-type": "application/json" },
-    }),
-  );
-  globalThis.fetch = mock as unknown as typeof fetch;
-  return mock;
+    },
+  });
 }
 
 const period = (y: number, m: number, d: number) => ({
@@ -84,10 +82,15 @@ describe("crux_history with the key configured", () => {
 
     await run({ url: "https://example.com/blog/post?x=1", scope: "origin", device: "phone" });
 
-    const [calledUrl, init] = mock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(calledUrl).toContain("records:queryHistoryRecord");
-    expect(init.method).toBe("POST");
-    expect(JSON.parse(String(init.body))).toEqual({ origin: "https://example.com", formFactor: "PHONE" });
+    const [asked] = requestsOf(mock);
+    expect(asked?.url).toContain("records:queryHistoryRecord");
+    expect(asked?.method).toBe("POST");
+    expect(asked?.json).toEqual({
+      origin: "https://example.com",
+      formFactor: "PHONE",
+      // The API's maximum. It was the default, 25, which left half a year of history unread.
+      collectionPeriodCount: 40,
+    });
   });
 
   it("reports the direction and when the rating changed", async () => {
@@ -155,6 +158,75 @@ describe("crux_history with the key configured", () => {
 
     expect(text).toContain("cannot be assessed — no reading for INP");
     expect(text).not.toContain("passes");
+  });
+});
+
+/** The same origin, with the unrated metrics the History API also serves. */
+const WITH_DIAGNOSTICS = structuredClone(AN_IMPROVING_ORIGIN) as { record: { metrics: Record<string, unknown> } };
+Object.assign(WITH_DIAGNOSTICS.record.metrics, {
+  largest_contentful_paint_image_time_to_first_byte: { percentilesTimeseries: { p75s: [600, 600, 580, 590] } },
+  largest_contentful_paint_image_resource_load_delay: { percentilesTimeseries: { p75s: [1400, 1200, 700, 650] } },
+  largest_contentful_paint_image_resource_load_duration: { percentilesTimeseries: { p75s: [300, 310, 290, 700] } },
+  largest_contentful_paint_image_element_render_delay: { percentilesTimeseries: { p75s: [90, 95, null, 100] } },
+  largest_contentful_paint_resource_type: {
+    fractionTimeseries: { image: { fractions: [0.7, 0.71, 0.72, 0.72] }, text: { fractions: [0.3, 0.29, 0.28, 0.28] } },
+  },
+  navigation_types: {
+    fractionTimeseries: {
+      navigate: { fractions: [0.8, 0.8, 0.78, 0.76] },
+      back_forward: { fractions: [0.08, 0.06, 0.04, 0.02] },
+      back_forward_cache: { fractions: [0.02, 0.04, 0.06, 0.08] },
+      reload: { fractions: [0.1, 0.1, 0.12, "NaN"] },
+    },
+  },
+  round_trip_time: { percentilesTimeseries: { p75s: [150, 148, 152, 149] } },
+});
+
+describe("crux_history diagnostics", () => {
+  it("describes the latest period without rating any diagnostic", async () => {
+    vi.stubEnv("PAGESPEED_API_KEY", "test-key");
+    answerWith(WITH_DIAGNOSTICS);
+
+    const text = textOf(await run({ url: "https://example.com/", scope: "origin" }));
+    const section = text.slice(text.indexOf("=== FIELD DIAGNOSTICS"), text.indexOf("=== BY PERIOD"));
+
+    expect(section).toContain("no Google threshold, so not rated");
+    expect(section).toContain("Resource load duration: 700ms — the largest");
+    expect(section).toContain("The largest part is resource load duration");
+    expect(section).toContain("LCP element: an image on 72% of visits, text on 28%");
+    expect(section).toContain("bfcache share: 80% of back/forward navigations");
+    expect(section).toContain("Round trip time (p75): 149ms");
+    // Nothing unrated is given a verdict.
+    expect(section).not.toMatch(/\((good|poor|needs improvement)\)/);
+  });
+
+  it("says how each diagnostic moved across the series", async () => {
+    vi.stubEnv("PAGESPEED_API_KEY", "test-key");
+    answerWith(WITH_DIAGNOSTICS);
+
+    const text = textOf(await run({ url: "https://example.com/", scope: "origin" }));
+
+    expect(text).toContain("Image LCP resource load delay (p75): 1.4s → 650ms");
+    expect(text).toContain("bfcache share of back/forward navigations: 20% → 80%");
+    expect(text).toContain("LCP element an image: 70% → 72%");
+  });
+
+  it("does not print NaN for a period CrUX marked missing", async () => {
+    vi.stubEnv("PAGESPEED_API_KEY", "test-key");
+    answerWith(WITH_DIAGNOSTICS);
+
+    const text = textOf(await run({ url: "https://example.com/", scope: "origin" }));
+
+    expect(text).not.toMatch(/NaN|undefined|Infinity|\[object Object\]/);
+  });
+
+  it("says so when the response carries no diagnostics", async () => {
+    vi.stubEnv("PAGESPEED_API_KEY", "test-key");
+    answerWith(AN_IMPROVING_ORIGIN);
+
+    const text = textOf(await run({ url: "https://example.com/", scope: "origin" }));
+
+    expect(text).toContain("CrUX reported no diagnostic metrics for this subject.");
   });
 });
 

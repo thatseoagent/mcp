@@ -4,78 +4,66 @@
  * `pagespeed_insights` reports CrUX as one number per vital — the p75 over the
  * last 28 days. That answers "is this page fast?" and cannot answer the question
  * an Operator asks after shipping a fix, which is "did it move?". The History API
- * returns the same measurement for each of the last 25 weekly collection periods,
- * so the answer is on the page instead of in a note to check back in a month.
+ * returns the same measurement for each of up to 40 weekly collection periods —
+ * the most it serves, about nine months — so the answer is on the page instead
+ * of in a note to check back in a month. This module asked for the API's
+ * default, 25, until 2026-09, which put a fix shipped six months earlier just
+ * outside the series it was meant to show.
  *
  * ── What a point in the series is ──
  *
  * **Each point is a 28-day window, and the windows end a week apart.** So
  * neighbouring points share three of their four weeks, and a change that took
  * effect on one day arrives over four points rather than as a step. A reader who
- * treats the series as 25 independent weekly readings will see a trend in what
+ * treats the series as 40 independent weekly readings will see a trend in what
  * is mostly overlap, and a report that did not say so would invite exactly that.
  *
- * ── Why this is its own module ──
+ * ── What it shares with `crux-record.ts` ──
  *
- * The key is `PAGESPEED_API_KEY`: a Google Cloud key works for every API enabled
- * on its project, and asking the Operator for a second key for the same console
- * would be a second thing to configure for no gain. What differs is the API it
- * needs enabled, which is why the requirement below is its own sentence rather
- * than `PAGESPEED_KEY_REQUIREMENT` reused — that one tells the Operator to enable
- * the PageSpeed API, and following it would leave this Tool refused with a 403.
+ * The key, the quota, the 404 convention, the number formats and the list of
+ * metrics are common to both CrUX endpoints and live in `crux-record.ts`, which
+ * this module reads through. The requirement and the form factor are re-exported
+ * from here so the callers that already name them keep working.
+ *
+ * ── Diagnostics, as a series ──
+ *
+ * The History API serves the same diagnostic metrics as the daily one — the LCP
+ * image parts, the LCP element type, navigation types, round trip time — and
+ * they answer the question after "did LCP move?", which is "which part of it
+ * moved?". They are read into their own shape because they are not rated: see
+ * `crux-record.ts` for why nothing here puts a threshold on them. The fractional
+ * ones arrive as `fractionTimeseries` (`{label: {fractions: [...]}}`) rather than
+ * as a histogram, and a period without one is `"NaN"` in every array.
  */
-import { fetchThirdPartyApi } from "./http-client";
-import { requireConfig, type ConfigRequirement } from "./required-config";
-import { UpstreamApiError } from "./upstream-api-error";
-import { createSingleFlightCache } from "./single-flight";
 import { isRecord } from "./type-guards";
+import { createSingleFlightCache } from "./single-flight";
+import {
+  cruxDate,
+  cruxNumber,
+  cruxRecordSubject,
+  cruxSubjectOf,
+  queryCrux,
+  LCP_SUBPARTS,
+  RATED_METRICS,
+  type CruxDiagnostics,
+  type CruxQuery,
+  type FormFactor,
+  type LcpSubpart,
+} from "./crux-record";
 import type { VitalKey } from "./analyzers/vital-thresholds";
 
-export const CRUX_KEY_REQUIREMENT: ConfigRequirement = {
-  variable: "PAGESPEED_API_KEY",
-  purpose: "call Google's Chrome UX Report API, which is where real-user field data comes from",
-  howToGet:
-    "Create an API key at https://console.cloud.google.com/apis/credentials and enable the " +
-    "Chrome UX Report API for its project. The key pagespeed_insights uses works, once that " +
-    "API is enabled beside the PageSpeed Insights API; it needs no billing account.",
-};
-
-/** How the API is named in a refusal. */
-const SERVICE = "Google's Chrome UX Report API";
+export { CRUX_KEY_REQUIREMENT, type CruxQuery, type FormFactor } from "./crux-record";
 
 const ENDPOINT = "https://chromeuxreport.googleapis.com/v1/records:queryHistoryRecord";
 
 /**
- * A bounded request. CrUX answers from a precomputed dataset in well under a
- * second; the ceiling exists because Node's `fetch` has none.
- */
-const CRUX_REQUEST_TIMEOUT_MS = 15_000;
-
-export type FormFactor = "PHONE" | "DESKTOP" | "TABLET";
-
-/**
- * The API's metric names, mapped to the keys `vital-thresholds` rates.
+ * How many weekly periods to ask for: the API's maximum.
  *
- * Only these are read. The response carries others — navigation types, round
- * trip time, form-factor shares — and each would need its own reading; listing
- * the five here is what keeps an unrecognised one from being printed as if it
- * were rated.
+ * The request costs the same whatever the count, and a longer series is the
+ * one that still contains the week a fix shipped. A subject CrUX has tracked
+ * for less time simply comes back shorter, with `null` for the periods before.
  */
-const METRICS: ReadonlyArray<[string, VitalKey]> = [
-  ["largest_contentful_paint", "lcp"],
-  ["interaction_to_next_paint", "inp"],
-  ["cumulative_layout_shift", "cls"],
-  ["first_contentful_paint", "fcp"],
-  ["experimental_time_to_first_byte", "ttfb"],
-];
-
-export interface CruxQuery {
-  /** A page URL or an origin, according to `scope`. */
-  url: string;
-  scope: "page" | "origin";
-  /** Omitted: every device combined, which is what the API reports by default. */
-  formFactor?: FormFactor;
-}
+export const COLLECTION_PERIOD_COUNT = 40;
 
 export interface CruxSeries {
   key: VitalKey;
@@ -83,6 +71,19 @@ export interface CruxSeries {
   p75s: Array<number | null>;
   /** The share of visits in the "good" bucket per period, 0–1, or `null`. */
   goodShares: Array<number | null>;
+}
+
+/**
+ * The unrated metrics, one value per collection period, oldest first.
+ *
+ * The same four readings {@link CruxDiagnostics} holds for one point, as
+ * arrays; {@link diagnosticsAt} takes one point back out of them.
+ */
+export interface CruxDiagnosticSeries {
+  lcpSubparts: Array<{ part: LcpSubpart; p75s: Array<number | null> }>;
+  lcpResourceType: Record<string, Array<number | null>>;
+  navigationTypes: Record<string, Array<number | null>>;
+  roundTripTime: Array<number | null>;
 }
 
 export interface CruxHistory {
@@ -93,6 +94,7 @@ export interface CruxHistory {
   /** The last day of each collection period, `YYYY-MM-DD`, oldest first. */
   periodEnds: string[];
   series: CruxSeries[];
+  diagnostics: CruxDiagnosticSeries;
 }
 
 /**
@@ -117,42 +119,18 @@ const historyCache = createSingleFlightCache<CruxHistoryResult>();
  *         definite "no data".
  */
 export function readCruxHistory(query: CruxQuery): Promise<CruxHistoryResult> {
-  const subject = subjectOf(query);
-  const key = `${query.scope} ${subject} ${query.formFactor ?? "ALL"}`;
-  return historyCache.run(key, () => fetchHistory(query, subject));
-}
-
-/** The origin, when asked for one: CrUX refuses an origin with a path on it. */
-function subjectOf(query: CruxQuery): string {
-  return query.scope === "origin" ? new URL(query.url).origin : query.url;
-}
-
-async function fetchHistory(query: CruxQuery, subject: string): Promise<CruxHistoryResult> {
-  const apiKey = requireConfig(CRUX_KEY_REQUIREMENT);
+  const subject = cruxSubjectOf(query);
   const formFactor = query.formFactor ?? "ALL";
-
-  const apiUrl = new URL(ENDPOINT);
-  apiUrl.searchParams.set("key", apiKey);
-
-  const response = await fetchThirdPartyApi(apiUrl.toString(), {
-    timeout: CRUX_REQUEST_TIMEOUT_MS,
-    json: {
+  const key = `${query.scope} ${subject} ${formFactor}`;
+  return historyCache.run(key, async () => {
+    const payload = await queryCrux(ENDPOINT, {
       [query.scope === "origin" ? "origin" : "url"]: subject,
       ...(query.formFactor ? { formFactor: query.formFactor } : {}),
-    },
+      collectionPeriodCount: COLLECTION_PERIOD_COUNT,
+    });
+    if (payload === null) return { kind: "no-data", subject, scope: query.scope, formFactor };
+    return readHistory(payload, query.scope, subject, formFactor);
   });
-
-  // 404 is how CrUX says "not enough traffic to report on" — its documented
-  // answer for a page or origin below its threshold, not a missing endpoint.
-  if (response.status === 404) {
-    await response.body?.cancel();
-    return { kind: "no-data", subject, scope: query.scope, formFactor };
-  }
-  if (!response.ok) {
-    throw await UpstreamApiError.fromResponse(SERVICE, response);
-  }
-
-  return readHistory(await response.json(), query.scope, subject, formFactor);
 }
 
 /**
@@ -171,57 +149,66 @@ export function readHistory(
   const record = isRecord(data.record) ? data.record : null;
   if (!record) return { kind: "no-data", subject: asked, scope, formFactor };
 
-  const recordKey = isRecord(record.key) ? record.key : {};
-  const subject =
-    typeof recordKey.url === "string"
-      ? recordKey.url
-      : typeof recordKey.origin === "string"
-        ? recordKey.origin
-        : asked;
-
   const periods = Array.isArray(record.collectionPeriods) ? record.collectionPeriods : [];
   const periodEnds = periods.map((period) =>
-    isRecord(period) ? formatDate(period.lastDate) : "unknown",
+    isRecord(period) ? cruxDate(period.lastDate) : "unknown",
   );
 
   const metrics = isRecord(record.metrics) ? record.metrics : {};
   const series: CruxSeries[] = [];
-  for (const [apiName, key] of METRICS) {
+  for (const [apiName, key] of RATED_METRICS) {
     const metric = metrics[apiName];
     if (!isRecord(metric)) continue;
-    const percentiles = isRecord(metric.percentilesTimeseries) ? metric.percentilesTimeseries : {};
-    const p75s = Array.isArray(percentiles.p75s) ? percentiles.p75s.map(toNumber) : [];
     const histogram = Array.isArray(metric.histogramTimeseries) ? metric.histogramTimeseries : [];
     // The first bin is "good": CrUX's bins are the three rating buckets, in order.
     const firstBin = isRecord(histogram[0]) ? histogram[0] : {};
-    const goodShares = Array.isArray(firstBin.densities) ? firstBin.densities.map(toNumber) : [];
-    series.push({ key, p75s, goodShares });
+    const goodShares = Array.isArray(firstBin.densities) ? firstBin.densities.map(cruxNumber) : [];
+    series.push({ key, p75s: p75sOf(metric), goodShares });
   }
 
   return {
     kind: "history",
-    history: { subject, scope, formFactor, periodEnds, series },
+    history: {
+      subject: cruxRecordSubject(record, asked),
+      scope,
+      formFactor,
+      periodEnds,
+      series,
+      diagnostics: {
+        lcpSubparts: LCP_SUBPARTS.map(({ metric, part }) => ({ part, p75s: p75sOf(metrics[metric]) })),
+        lcpResourceType: fractionSeriesOf(metrics.largest_contentful_paint_resource_type),
+        navigationTypes: fractionSeriesOf(metrics.navigation_types),
+        roundTripTime: p75sOf(metrics.round_trip_time),
+      },
+    },
   };
 }
 
-/**
- * A reading, or `null` for a period without one.
- *
- * CrUX writes a missing p75 as `null` and a missing density as the string
- * `"NaN"`, and writes CLS's p75 as a string ("0.05") because it is not an
- * integer. One reader for all three, so none of them becomes a zero — which would
- * be a perfect CLS or an instant LCP in a period where nothing was measured.
- */
-function toNumber(value: unknown): number | null {
-  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
-  return Number.isFinite(parsed) ? parsed : null;
+function p75sOf(metric: unknown): Array<number | null> {
+  if (!isRecord(metric)) return [];
+  const percentiles = isRecord(metric.percentilesTimeseries) ? metric.percentilesTimeseries : {};
+  return Array.isArray(percentiles.p75s) ? percentiles.p75s.map(cruxNumber) : [];
 }
 
-function formatDate(date: unknown): string {
-  if (!isRecord(date)) return "unknown";
-  const { year, month, day } = date;
-  if (typeof year !== "number" || typeof month !== "number" || typeof day !== "number") {
-    return "unknown";
+/** `{label: {fractions: [...]}}`, as label → one share per period. */
+function fractionSeriesOf(metric: unknown): Record<string, Array<number | null>> {
+  if (!isRecord(metric) || !isRecord(metric.fractionTimeseries)) return {};
+  const out: Record<string, Array<number | null>> = {};
+  for (const [label, entry] of Object.entries(metric.fractionTimeseries)) {
+    if (isRecord(entry) && Array.isArray(entry.fractions)) out[label] = entry.fractions.map(cruxNumber);
   }
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return out;
+}
+
+/** The diagnostics at one period of the series, in the one-point shape `describeDiagnostics` reads. */
+export function diagnosticsAt(series: CruxDiagnosticSeries, index: number): CruxDiagnostics {
+  const at = (values: Array<number | null> | undefined) => values?.[index] ?? null;
+  const each = (byLabel: Record<string, Array<number | null>>) =>
+    Object.fromEntries(Object.entries(byLabel).map(([label, values]) => [label, at(values)]));
+  return {
+    lcpSubparts: series.lcpSubparts.map(({ part, p75s }) => ({ part, p75: at(p75s) })),
+    lcpResourceType: each(series.lcpResourceType),
+    navigationTypes: each(series.navigationTypes),
+    roundTripTime: at(series.roundTripTime),
+  };
 }

@@ -43,6 +43,27 @@ describe("seo_crawlability_audit", () => {
     expect(text).toContain("CRITICAL:");
   });
 
+  it.each<[string, string, boolean]>([
+    ["https://example.com/page/", "https://example.com/page", false],
+    ["https://example.com/page", "http://example.com/page", true],
+    ["https://example.com/page", "https://www.example.com/page", true],
+    // Path case counts, as it does to the server. The old comparison lowercased
+    // the whole URL and read these two as one.
+    ["https://example.com/Page", "https://example.com/page", true],
+  ])("compares an HTML canonical %j with a Link header naming %j: differ = %j", async (inHtml, inHeader, differ) => {
+    serve({
+      "example.com/robots.txt": { status: 404, body: "" },
+      "https://example.com/page": {
+        headers: { "content-type": "text/html", link: `<${inHeader}>; rel="canonical"` },
+        body: `<html><head><link rel="canonical" href="${inHtml}"></head><body><h1>Page</h1></body></html>`,
+      },
+    });
+
+    const text = textOf(await seoCrawlabilityAudit({ url: "https://example.com/page" }));
+
+    expect(text.includes("differs from HTTP header canonical")).toBe(differ);
+  });
+
   it("reports a missing canonical as information, not as a defect", async () => {
     serve({
       "example.com/robots.txt": { status: 404, body: "" },

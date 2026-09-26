@@ -26,6 +26,12 @@ claim nobody is in a position to make.
 it. That number is a floor, not a count — an assistant that answers from your page without
 linking to it sends no visit at all — and the Tool says so.
 
+Two Tools cross that traffic with the site itself. \`site_ai_landing_signals\` compares the
+pages assistants send people to with busy organic pages they send nobody to, signal by
+signal — correlation over a small sample, and it says so. \`site_ai_crawler_traffic\` puts
+each assistant's referrals beside what robots.txt tells its crawlers, which is where a
+site blocking the search crawler of an assistant that is sending it visitors shows up.
+
 ## The part that is not speculative
 
 Before anything about AI, the page has to be readable at all. These are ordinary

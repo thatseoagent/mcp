@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { UpstreamApiError } from "@/lib/upstream-api-error";
+import { requestsOf, serve, type ServedRequest } from "../../helpers/serve";
 
 vi.mock("@/lib/google/oauth", () => ({
   accessToken: vi.fn(async () => "test-access-token"),
@@ -9,19 +10,23 @@ vi.mock("@/lib/google/oauth", () => ({
 
 import { createGoogleReader } from "@/lib/google/live-reader";
 
-const originalFetch = globalThis.fetch;
-let calls: Array<{ url: string; init: RequestInit }> = [];
+/** What each Google request asked, in order: the live record of the current `serve`. */
+let calls: ServedRequest[] = [];
 
-/** Answer every Google request with one payload, recording what was asked. */
+/** Answer every Google request with `answer`, recording what was asked. */
+function answerBy(answer: () => { status?: number; payload: unknown }): void {
+  const mock = serve({
+    "googleapis.com": () => {
+      const { status = 200, payload } = answer();
+      return { status, body: JSON.stringify(payload), headers: { "content-type": "application/json" } };
+    },
+  });
+  calls = requestsOf(mock);
+}
+
+/** Answer every Google request with one payload. */
 function answerWith(payload: unknown, status = 200): void {
-  calls = [];
-  globalThis.fetch = vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
-    calls.push({ url: String(input), init });
-    return new Response(JSON.stringify(payload), {
-      status,
-      headers: { "content-type": "application/json" },
-    });
-  }) as unknown as typeof fetch;
+  answerBy(() => ({ status, payload }));
 }
 
 beforeEach(async () => {
@@ -32,7 +37,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  globalThis.fetch = originalFetch;
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -40,7 +45,7 @@ describe("authenticating every request", () => {
   it("sends the access token as a bearer token", async () => {
     await createGoogleReader().searchConsole.listProperties();
 
-    expect((calls[0].init.headers as Record<string, string>).authorization).toBe(
+    expect(calls[0]?.headers.authorization).toBe(
       "Bearer test-access-token",
     );
   });
@@ -82,14 +87,69 @@ describe("Search Console requests", () => {
       dimensions: ["query"],
     });
 
-    expect(calls[0].init.method).toBe("POST");
-    const body = JSON.parse(String(calls[0].init.body));
+    expect(calls[0]?.method).toBe("POST");
+    const body = calls[0]?.json;
     expect(body).toEqual({
       startDate: "2026-08-01",
       endDate: "2026-08-28",
       dimensions: ["query"],
+      // Google's own default, written out because the reader pages from it.
+      rowLimit: 1_000,
+      startRow: 0,
     });
     expect(body.siteUrl).toBeUndefined();
+  });
+
+  it("reads a limit above Google's page size in pages until one comes back short", async () => {
+    const row = { keys: ["q"], clicks: 1, impressions: 1, ctr: 1, position: 1 };
+    const pages = [25_000, 25_000, 7];
+    // The request is recorded before it is answered, so `calls.length` is its number.
+    answerBy(() => ({ payload: { rows: Array.from({ length: pages[calls.length - 1] ?? 0 }, () => row) } }));
+
+    const rows = await createGoogleReader().searchConsole.searchAnalytics({
+      siteUrl: "sc-domain:example.com",
+      startDate: "2026-08-01",
+      endDate: "2026-08-28",
+      dimensions: ["query"],
+      rowLimit: 100_000,
+    });
+
+    // Without paging this was 25,000 rows presented as all of them.
+    expect(rows).toHaveLength(50_007);
+    expect(calls).toHaveLength(3);
+    expect(calls.map((call) => call.json.startRow)).toEqual([0, 25_000, 50_000]);
+    expect(calls.map((call) => call.json.rowLimit)).toEqual([
+      25_000, 25_000, 25_000,
+    ]);
+  });
+
+  it("never asks for more rows than the caller's limit", async () => {
+    answerWith({ rows: [] });
+
+    await createGoogleReader().searchConsole.searchAnalytics({
+      siteUrl: "sc-domain:example.com",
+      startDate: "2026-08-01",
+      endDate: "2026-08-28",
+      rowLimit: 30,
+    });
+
+    expect(calls[0]?.json.rowLimit).toBe(30);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("passes on which days Google says are still partial", async () => {
+    answerWith({ rows: [], metadata: { firstIncompleteDate: "2026-09-23" } });
+
+    const result = await createGoogleReader().searchConsole.searchAnalyticsWithMetadata({
+      siteUrl: "sc-domain:example.com",
+      startDate: "2026-09-01",
+      endDate: "2026-09-24",
+      dimensions: ["date"],
+      dataState: "all",
+    });
+
+    expect(result.firstIncompleteDate).toBe("2026-09-23");
+    expect(calls[0]?.json.dataState).toBe("all");
   });
 
   it("reads no properties as an empty list rather than as undefined", async () => {
@@ -119,7 +179,7 @@ describe("Search Console requests", () => {
       "https://example.com/page",
     );
 
-    const body = JSON.parse(String(calls[0].init.body));
+    const body = calls[0]?.json;
     expect(body.siteUrl).toBe("sc-domain:example.com");
     expect(body.inspectionUrl).toBe("https://example.com/page");
   });
@@ -147,7 +207,7 @@ describe("Analytics requests", () => {
       metrics: ["sessions"],
     });
 
-    const body = JSON.parse(String(calls[0].init.body));
+    const body = calls[0]?.json;
     expect(body.dimensions).toEqual([{ name: "sessionDefaultChannelGroup" }]);
     expect(body.metrics).toEqual([{ name: "sessions" }]);
     expect(body.dateRanges).toEqual([{ startDate: "2026-08-01", endDate: "2026-08-28" }]);
@@ -174,6 +234,71 @@ describe("Analytics requests", () => {
       { name: "properties/111", displayName: "One", account: "Example Ltd" },
       { name: "properties/222", displayName: "Two", account: "Example Ltd" },
     ]);
+  });
+});
+
+describe("Analytics configuration requests", () => {
+  it("reads the stable settings from v1beta and the rest from v1alpha", async () => {
+    const reader = createGoogleReader();
+
+    await reader.analyticsAdmin.getDataRetention("123");
+    await reader.analyticsAdmin.getAttributionSettings("123");
+    await reader.analyticsAdmin.getEnhancedMeasurement("properties/123/dataStreams/9");
+
+    expect(calls[0].url).toBe(
+      "https://analyticsadmin.googleapis.com/v1beta/properties/123/dataRetentionSettings",
+    );
+    expect(calls[1].url).toBe(
+      "https://analyticsadmin.googleapis.com/v1alpha/properties/123/attributionSettings",
+    );
+    expect(calls[2].url).toBe(
+      "https://analyticsadmin.googleapis.com/v1alpha/properties/123/dataStreams/9/enhancedMeasurementSettings",
+    );
+    expect(calls.every((call) => call.method === "GET")).toBe(true);
+  });
+
+  it("follows every page of a list", async () => {
+    const pages = [
+      { keyEvents: [{ eventName: "purchase" }], nextPageToken: "next" },
+      { keyEvents: [{ eventName: "generate_lead" }] },
+    ];
+    answerBy(() => ({ payload: pages[calls.length - 1] }));
+
+    const events = await createGoogleReader().analyticsAdmin.listKeyEvents("123");
+
+    expect(events.map((event) => event.eventName)).toEqual(["purchase", "generate_lead"]);
+    expect(calls[1].url).toContain("pageToken=next");
+  });
+
+  it("names a link by what it links to", async () => {
+    answerWith({ bigqueryLinks: [{ name: "properties/123/bigQueryLinks/1", project: "projects/42" }] });
+
+    await expect(createGoogleReader().analyticsAdmin.listBigQueryLinks("123")).resolves.toEqual([
+      { name: "properties/123/bigQueryLinks/1", target: "projects/42" },
+    ]);
+  });
+
+  it("sends a funnel's steps as event filters, narrowed to a page when one is named", async () => {
+    await createGoogleReader().analytics.runFunnelReport({
+      property: "123",
+      dateRanges: [{ startDate: "28daysAgo", endDate: "yesterday" }],
+      steps: [
+        { name: "Landing", eventName: "session_start" },
+        { name: "Pricing", eventName: "page_view", pagePathPrefix: "/pricing" },
+      ],
+    });
+
+    expect(calls[0].url).toBe("https://analyticsdata.googleapis.com/v1alpha/properties/123:runFunnelReport");
+    const body = calls[0]?.json;
+    expect(body.funnel.steps[0].filterExpression).toEqual({
+      funnelEventFilter: { eventName: "session_start" },
+    });
+    expect(body.funnel.steps[1].filterExpression.andGroup.expressions[1]).toEqual({
+      funnelFieldFilter: {
+        fieldName: "pagePath",
+        stringFilter: { matchType: "BEGINS_WITH", value: "/pricing" },
+      },
+    });
   });
 });
 

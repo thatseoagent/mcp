@@ -67,13 +67,13 @@ const PAGE_KINDS: PageKind[] = [
  */
 function everyLabel(): Set<string> {
   const labels = new Set<string>();
-  const sitemap = { outcome: "absent" as const, status: 404 };
+  const sitemap = { outcome: "no-sitemap" as const };
   const robots = { outcome: "absent" as const, status: 404 };
 
   for (const kind of PAGE_KINDS) {
     const categories = [
       scoreStructuredData([], new Set<string>(), kind),
-      scoreFreshness([], sitemap, kind, "https://example.com/"),
+      scoreFreshness([], sitemap, kind),
       scoreContentStructure(page("<html></html>"), kind),
       scoreAiCrawlerAccess(robots, "<html></html>", false),
       scoreAuthorEeat("<html></html>", [], kind),

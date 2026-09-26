@@ -29,7 +29,7 @@
  */
 
 import { fetchAnyStatus } from "./http-client";
-import { RobotsDisallowedError } from "./robots-gate";
+import { RobotsDisallowedError, ROBOTS_REFUSAL } from "./robots-gate";
 
 /**
  * How many declared links are probed in one run.
@@ -215,7 +215,7 @@ async function probeLink(url: string, _origin: string, homepage: string | null):
       return {
         url,
         outcome: "unreachable",
-        reason: "robots.txt disallows it for our crawler, and we honour that",
+        reason: ROBOTS_REFUSAL,
         blockedByRobots: true,
       };
     }

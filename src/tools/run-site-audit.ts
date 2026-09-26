@@ -2,13 +2,13 @@ import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
 import { refreshable } from "../lib/with-cache";
+import { basisSection } from "../lib/render-basis";
 import { toolText } from "../lib/tool-result";
 import { persistenceStatus } from "../lib/db/runtime";
 import { NoDatabaseError, registerSite, rememberGoogleProperty } from "../lib/sites";
 import { accessFor } from "../lib/google/property-access";
 import { resolveWindow } from "../lib/google/gsc-dates";
-import { classifyAiReferrer } from "../lib/google/ai-referrers";
-import { readReport } from "../lib/google/ga4-report";
+import { aiReferred } from "../lib/google/traffic-segments";
 import { recordReadings, rollUpMonths, movementOf, type Reading } from "../lib/metric-history";
 import { failRefresh, finishRefresh, startRefresh } from "../lib/site-refresh";
 import { InvalidInputError } from "../lib/invalid-input-error";
@@ -116,6 +116,9 @@ export async function handler(
     }
 
     const readings: Reading[] = [];
+    // What GA4 said about its own figures, for the basis section that closes
+    // the report. Empty when Analytics was not run or said nothing.
+    const analyticsCaveats: string[] = [];
 
     // ── Search Console ─────────────────────────────────────────────────────
     const totals = await google.searchConsole.searchAnalytics({
@@ -180,28 +183,28 @@ export async function handler(
       lines.push("`ga4PropertyId` here. Nothing below is missing because of this — the");
       lines.push("Analytics figures simply were not measured on this run.");
     } else {
-      const sessions = await google.analytics.runReport({
+      // The site's sessions and its AI-referred ones from one reading, the same
+      // one ga4_ai_traffic makes, so the two Tools cannot disagree about a
+      // property. The total is GA4's own: `null` when it reported none, which
+      // is recorded as unmeasured rather than as a site with no visits.
+      const ai = await aiReferred(google, {
         property,
-        dateRanges: [{ startDate: `${days ?? 28}daysAgo`, endDate: "yesterday" }],
-        dimensions: ["sessionSource", "sessionMedium"],
-        metrics: ["sessions"],
-        limit: 10_000,
+        dateRange: { startDate: `${days ?? 28}daysAgo`, endDate: "yesterday" },
       });
-      const table = readReport(sessions);
-
-      const total = table.totals[0] ?? 0;
-      const ai = table.rows
-        .filter((row) => classifyAiReferrer((row.dimensions[0] ?? "").toLowerCase(), row.dimensions[1] ?? ""))
-        .reduce((sum, row) => sum + (row.metrics[0] ?? 0), 0);
+      const total = ai.siteSessions ?? undefined;
 
       lines.push(`Property: ${property}`);
-      lines.push(`Sessions: ${Math.round(total)}`);
-      lines.push(`From AI assistants: ${Math.round(ai)}`);
-      for (const caveat of table.caveats) lines.push(`Note: ${caveat}`);
+      lines.push(
+        total === undefined
+          ? "Sessions: not measured — GA4 reported no total for this window"
+          : `Sessions: ${Math.round(total)}`,
+      );
+      lines.push(`From AI assistants: ${Math.round(ai.sessions)}`);
+      analyticsCaveats.push(...ai.caveats.map((caveat) => `GA4: ${caveat}`));
 
       readings.push(
         { metric: "ga4.sessions", value: measured(total) },
-        { metric: "ga4.aiSessions", value: measured(ai) },
+        { metric: "ga4.aiSessions", value: measured(ai.sessions) },
       );
       rememberGoogleProperty(site.domain, { ga4PropertyId: property });
     }
@@ -249,6 +252,8 @@ export async function handler(
       lines.push("");
       lines.push("seo_metric_trend shows the whole series for any of these.");
     }
+
+    lines.push(...basisSection({ read: [], caveats: analyticsCaveats }));
 
     const report = lines.join("\n");
     if (refresh) finishRefresh(refresh.id, report);

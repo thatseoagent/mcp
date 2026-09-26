@@ -28,6 +28,7 @@
 import { getDomain } from "tldts";
 import { InvalidInputError } from "../invalid-input-error";
 import { UpstreamApiError } from "../upstream-api-error";
+import { propertyDomain, propertyRoot } from "../url-match";
 import type { GscProperty, SearchConsoleReader } from "./reader";
 
 /**
@@ -40,10 +41,14 @@ export function isFormattedSiteUrl(input: string): boolean {
   return input.startsWith("sc-domain:") || /^https?:\/\//.test(input);
 }
 
-/** The registrable domain of either property shape, for comparison. */
+/**
+ * The registrable domain of either property shape, for comparison.
+ *
+ * Registrable rather than `hostKey`'s host, because a bare domain is matched to
+ * every property of its site: `shop.example.com/` answers for `example.com`.
+ */
 function domainOfProperty(siteUrl: string): string | null {
-  if (siteUrl.startsWith("sc-domain:")) return getDomain(siteUrl.slice("sc-domain:".length));
-  return getDomain(siteUrl);
+  return getDomain(propertyDomain(siteUrl) ?? siteUrl);
 }
 
 /**
@@ -61,7 +66,7 @@ export function matchSiteUrl(input: string, properties: readonly GscProperty[]):
   const candidates = properties.filter((property) => domainOfProperty(property.siteUrl) === wanted);
   if (candidates.length === 0) return null;
 
-  const domainProperty = candidates.find((property) => property.siteUrl.startsWith("sc-domain:"));
+  const domainProperty = candidates.find((property) => propertyDomain(property.siteUrl) !== null);
   return (domainProperty ?? candidates[0]).siteUrl;
 }
 
@@ -113,9 +118,7 @@ export async function resolveSiteUrl(
 
 /** The other spelling of the same Site, or `null` when there is none. */
 export function alternateProperty(siteUrl: string): string | null {
-  if (siteUrl.startsWith("sc-domain:")) {
-    return `https://${siteUrl.slice("sc-domain:".length)}/`;
-  }
+  if (propertyDomain(siteUrl) !== null) return propertyRoot(siteUrl);
   const domain = domainOfProperty(siteUrl);
   return domain ? `sc-domain:${domain}` : null;
 }

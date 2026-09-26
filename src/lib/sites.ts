@@ -28,36 +28,9 @@ import { getDomain } from "tldts";
 import { sites, type Site } from "./db/schema";
 import { now } from "./db/instants";
 import { database } from "./db/runtime";
-import { InvalidInputError } from "./invalid-input-error";
-
-/**
- * The domain, as it will be stored.
- *
- * A person says `https://example.com/pricing`, `www.example.com` and
- * `example.com` meaning one thing, so all three land on one row. The scheme, the
- * path and a leading `www.` all go; anything else in the hostname stays, because
- * `blog.example.com` genuinely is a different Site from `example.com` and the
- * Operator may want both.
- */
-export function normaliseDomain(input: string): string {
-  const trimmed = input.trim();
-  if (trimmed.length === 0) throw new InvalidInputError("A domain is required.");
-
-  let hostname = trimmed;
-  try {
-    hostname = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`).hostname;
-  } catch {
-    throw new InvalidInputError(`"${input}" is not a domain this server can read.`);
-  }
-
-  const lowered = hostname.toLowerCase().replace(/^www\./, "");
-  if (!getDomain(lowered)) {
-    throw new InvalidInputError(
-      `"${input}" is not a registrable domain. Pass something like example.com.`,
-    );
-  }
-  return lowered;
-}
+// How a typed domain becomes the stored one is `url-match.ts`'s, with every
+// other rule for when two hosts are one.
+import { normaliseDomain } from "./url-match";
 
 /** The eTLD+1 of a domain, which is how two spellings of one property group. */
 function registrableDomainOf(domain: string): string {

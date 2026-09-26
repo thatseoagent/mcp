@@ -77,6 +77,30 @@ describe("seo_hreflang_validator", () => {
     expect(text).toContain("Self-referencing present: ✗");
   });
 
+  it.each<[string, string]>([
+    ["https://example.com/en/", "✓"],
+    ["http://example.com/en", "✗"],
+    ["https://www.example.com/en", "✗"],
+    // Path case counts, as it does to the server. The old comparison lowercased
+    // the whole URL and accepted this as the page itself.
+    ["https://example.com/EN", "✗"],
+  ])("reads a self-reference to %j as %s: the scheme and host count", async (self, mark) => {
+    serve({
+      "example.com/robots.txt": { status: 404, body: "" },
+      "https://example.com/en": withLinks(alternate("en", self) + alternate("fr", "https://example.com/fr")),
+    });
+
+    const text = textOf(
+      await run({
+        url: "https://example.com/en",
+        checkBidirectional: false,
+        checkAccessibility: false,
+      }),
+    );
+
+    expect(text).toContain(`Self-referencing present: ${mark}`);
+  });
+
   it("rejects an underscore where Google wants a hyphen", async () => {
     serve({
       "example.com/robots.txt": { status: 404, body: "" },

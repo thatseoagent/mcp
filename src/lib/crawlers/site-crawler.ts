@@ -20,6 +20,7 @@ import { CRAWLER_USER_AGENT } from "../bot-identity";
 import { visibleTexts } from "../visible-text";
 import { fetchAnyStatus } from "../http-client";
 import { isAllowedByRobots } from "../robots-gate";
+import { urlKey } from "../url-match";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -303,15 +304,10 @@ async function fetchPage(url: string, depth: number, origin: string): Promise<Pa
  * the report never shows a reader a URL they did not give us.
  */
 function visitKey(url: string): string {
-  try {
-    const u = new URL(url);
-    u.hash = "";
-    u.search = "";
-    u.pathname = u.pathname.replace(/\/+$/, "") || "/";
-    return u.toString();
-  } catch {
-    return url;
-  }
+  // Built on `url-match.ts`'s identity, differing only in the query. The scheme
+  // and `www.` leniency changes nothing here: `isInternal` keeps every queued URL
+  // on the seed's origin.
+  return urlKey(url, undefined, { query: "drop" }) ?? url;
 }
 
 export async function crawlSite(startUrl: string, maxPages: number): Promise<CrawlReport> {

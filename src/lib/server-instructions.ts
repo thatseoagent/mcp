@@ -3,7 +3,7 @@
  *
  * ── Why this exists ──
  *
- * An agent handed fifty-five Tools calls the ones whose names match the words in
+ * An agent handed seventy-five Tools calls the ones whose names match the words in
  * the request. That produces a report assembled from whatever happened to sound
  * relevant, and — worse — it produces confident summaries of numbers whose
  * caveats were in the Tool output and got dropped on the way to the answer.
@@ -30,10 +30,12 @@ Google, or this account holds no Search Console property for the domain. That is
 fastest way to find out, and a refusal is a state rather than a fault — read it out and
 carry on with the Tools that need no credentials.
 
-**Two halves.** Everything named seo_*, crawl_site, pagespeed_insights and crux_history
-reads a site's public surface and works on any domain, including one the Operator does not own. Anything
-named gsc_*, ga4_*, run_site_audit or sync_gsc_properties reads the Operator's own Google
-data and needs the login.
+**Two halves.** Everything named seo_*, crawl_site, pagespeed_insights, crux_history and
+the other named external sources (wayback_history, brand_pageviews, domain_authority,
+web_risk_check, page_entities) reads a site's public surface and works
+on any domain, including one the Operator does not own. Anything named gsc_*, ga4_*,
+run_site_audit or sync_gsc_properties reads the Operator's own Google data and needs the
+login; site_* crosses that data with the site's own pages, and needs it too.
 
 **Report what the Tools say about their own numbers.** They state whose threshold they
 applied, how many rows they read, and when something could not be measured. A check that

@@ -21,22 +21,27 @@ import type { PageKind } from "@/lib/analyzers/page-identity";
 import { page } from "../../helpers/parsed-page";
 
 /**
- * The two scorers below take a `WellKnownRead` since #337: a robots.txt or a sitemap
- * we could not read has to be distinguishable from one that said nothing. These
- * wrap a fixture string as the answer it used to be implicitly.
+ * `scoreAiCrawlerAccess` takes a `WellKnownRead` since #337: a robots.txt we could
+ * not read has to be distinguishable from one that said nothing. This wraps a
+ * fixture string as the answer it used to be implicitly.
  */
 const robotsFound = (text: string) => ({ outcome: "found" as const, text, status: 200 });
-const sitemapFound = (text: string) => ({ outcome: "found" as const, text, status: 200 });
 /**
- * The third outcome, which had no fixture and therefore no test — the
- * `!answered(sitemapRead)` branch and the `status: "not-evaluated"` it sets were
- * written for #337 and never exercised. #346 is what happens when the guard is
- * right and nothing proves it stays right: its caller laundered every
- * `unavailable` into `found` and nobody noticed.
+ * `scoreFreshness` takes the sitemap's answer about the page, already interpreted
+ * by `site-sitemap.ts`, so its fixtures are answers rather than XML. This one is
+ * what an empty sitemap body used to resolve to.
  */
-const sitemapUnavailable = (reason: string) =>
-  ({ outcome: "unavailable" as const, reason, status: 0 });
-const sitemapAbsent = () => ({ outcome: "absent" as const, status: 404 });
+const NO_SITEMAP = { outcome: "no-sitemap" as const };
+/**
+ * The third outcome, which had no fixture and therefore no test — the unread
+ * branch and the `status: "not-evaluated"` it sets were written for #337 and never
+ * exercised. #346 is what happens when the guard is right and nothing proves it
+ * stays right: its caller laundered every unreadable child into `found` and
+ * nobody noticed.
+ */
+const sitemapUnread = (reason: string) => ({ outcome: "unread" as const, reason });
+const listed = (lastmod: string | null) => ({ outcome: "listed" as const, lastmod });
+const NOT_LISTED = { outcome: "not-listed" as const };
 
 
 const findCheck = (cat: GeoCategory, needle: string) =>
@@ -556,7 +561,7 @@ describe("a category derives its own arithmetic", () => {
     const html = "<html><body><h1>x</h1></body></html>";
     return [
       scoreStructuredData([], new Set<string>(), pageType),
-      scoreFreshness([], sitemapFound(""), pageType),
+      scoreFreshness([], NO_SITEMAP, pageType),
       scoreContentStructure(page(html), pageType),
       scoreAiCrawlerAccess(robotsFound(""), html, false),
       scoreAuthorEeat(html, [], pageType),
@@ -624,7 +629,7 @@ describe("a category derives its own arithmetic", () => {
 
 describe("partial credit is reported as partial, not as zero", () => {
   const dateModified = (iso: string) =>
-    scoreFreshness([{ "@type": "Article", dateModified: iso }], sitemapFound(""), "article")
+    scoreFreshness([{ "@type": "Article", dateModified: iso }], NO_SITEMAP, "article")
       .checks.find((c) => c.label.includes("Date modified"))!;
 
   const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
@@ -652,7 +657,7 @@ describe("partial credit is reported as partial, not as zero", () => {
   });
 
   it("counts partial credit toward the category score", () => {
-    const cat = scoreFreshness([{ "@type": "Article", dateModified: daysAgo(120) }], sitemapFound(""), "article");
+    const cat = scoreFreshness([{ "@type": "Article", dateModified: daysAgo(120) }], NO_SITEMAP, "article");
     expect(cat.score).toBe(5);
     expect(cat.maxScore).toBe(15);
   });
@@ -682,7 +687,7 @@ describe("the freshness signal the audit of all 41 checks missed", () => {
 
   it("treats all three freshness-date checks consistently on one page", () => {
     // One signal, one verdict. These three used to disagree about a homepage.
-    const structure = find(scoreFreshness([], sitemapFound(""), "homepage"), "Date modified within 90 days");
+    const structure = find(scoreFreshness([], NO_SITEMAP, "homepage"), "Date modified within 90 days");
     const signals = scoreFreshnessSignals(bare, {}, "homepage");
     expect(structure.status).toBe("not-applicable");
     expect(find(signals, "JSON-LD states when").status).toBe("not-applicable");
@@ -699,7 +704,7 @@ describe("each signal is counted once", () => {
   const every = (pageType: PageKind) => {
     return [
       scoreStructuredData([], new Set<string>(), pageType),
-      scoreFreshness([], sitemapFound(""), pageType),
+      scoreFreshness([], NO_SITEMAP, pageType),
       scoreContentStructure(page(html), pageType),
       scoreAiCrawlerAccess(robotsFound(""), html, false),
       scoreAuthorEeat(html, [], pageType),
@@ -959,57 +964,40 @@ describe("Article schema check accepts every Article subtype (#312)", () => {
 });
 
 describe("sitemap lastmod is matched to the analyzed page (#312)", () => {
+  // Which entry is this page's — a different page listed first, a trailing slash,
+  // `www.` — is `entryFor`'s question now, and `site-sitemap.test.ts` asks it. What
+  // is left here is what each answer is worth.
   const find = (cat: GeoCategory) => findCheck(cat, "Sitemap lastmod agrees")!;
-  const PAGE = "https://example.com/b";
   const schemas = [{ "@type": "Article", dateModified: "2026-08-01" }];
 
-  const sitemap = (entries: Array<[string, string?]>) =>
-    `<urlset>${entries
-      .map(([loc, lastmod]) => `<url><loc>${loc}</loc>${lastmod ? `<lastmod>${lastmod}</lastmod>` : ""}</url>`)
-      .join("")}</urlset>`;
-
-  it("ignores an earlier entry belonging to a different page", () => {
-    // The old implementation took the first <lastmod> in the document. Here that
-    // belongs to /a and is 8 months stale; /b's own date matches the schema.
-    const xml = sitemap([["https://example.com/a", "2026-01-01"], [PAGE, "2026-08-01"]]);
-    expect(find(scoreFreshness(schemas, sitemapFound(xml), "article", PAGE)).passed).toBe(true);
+  it("passes when the page's own lastmod agrees with dateModified", () => {
+    expect(find(scoreFreshness(schemas, listed("2026-08-01"), "article")).passed).toBe(true);
   });
 
   it("fails when the page's own lastmod disagrees with dateModified", () => {
-    const xml = sitemap([[PAGE, "2026-01-01"]]);
-    const check = find(scoreFreshness(schemas, sitemapFound(xml), "article", PAGE));
+    const check = find(scoreFreshness(schemas, listed("2026-01-01"), "article"));
     expect(check.passed).toBe(false);
     expect(check.detail).toMatch(/differs by \d+ days/);
   });
 
   it("treats a page absent from the sitemap as its own finding, not a date mismatch", () => {
-    const xml = sitemap([["https://example.com/a", "2026-08-01"]]);
-    const check = find(scoreFreshness(schemas, sitemapFound(xml), "article", PAGE));
+    const check = find(scoreFreshness(schemas, NOT_LISTED, "article"));
     expect(check.passed).toBe(false);
     expect(check.detail).toBe("Page is not listed in the sitemap");
   });
 
   it("distinguishes a listed page with no lastmod from an unlisted one", () => {
-    const xml = sitemap([[PAGE]]);
-    expect(find(scoreFreshness(schemas, sitemapFound(xml), "article", PAGE)).detail)
+    expect(find(scoreFreshness(schemas, listed(null), "article")).detail)
       .toBe("Sitemap lists this page but publishes no lastmod for it");
   });
 
-  it("matches regardless of a trailing slash", () => {
-    const xml = sitemap([[`${PAGE}/`, "2026-08-01"]]);
-    expect(find(scoreFreshness(schemas, sitemapFound(xml), "article", PAGE)).passed).toBe(true);
-  });
-
-  it("says why it could not run rather than comparing against an unrelated entry", () => {
-    const xml = sitemap([["https://example.com/a", "2026-01-01"]]);
-    expect(find(scoreFreshness(schemas, sitemapFound(xml), "article")).detail)
-      .toBe("No page URL supplied, cannot match a sitemap entry");
-    expect(find(scoreFreshness(schemas, sitemapFound(""), "article", PAGE)).detail)
-      .toBe("No sitemap available to check");
+  it("says the schema is what is missing when only the sitemap has a date", () => {
+    expect(find(scoreFreshness([{ "@type": "Article" }], listed("2026-08-01"), "article")).detail)
+      .toBe("Sitemap has lastmod for this page but the schema has no dateModified");
   });
 
   it("does not call a sitemap it could not read a page that is not listed (#346)", () => {
-    const check = find(scoreFreshness(schemas, sitemapUnavailable("the index's children 5xx'd"), "article", PAGE));
+    const check = find(scoreFreshness(schemas, sitemapUnread("the index's children 5xx'd"), "article"));
 
     expect(check.status).toBe("not-evaluated");
     // The canonical sentence, since #337's follow-up: reason first, then the half
@@ -1021,9 +1009,9 @@ describe("sitemap lastmod is matched to the analyzed page (#312)", () => {
   });
 
   it("still scores a site with no sitemap at all as a failure", () => {
-    // `absent` is a finding: the site has no sitemap. Telling that apart from
+    // `no-sitemap` is a finding: the site has no sitemap. Telling that apart from
     // "we could not read one" is the whole reason the read is three-state.
-    const check = find(scoreFreshness(schemas, sitemapAbsent(), "article", PAGE));
+    const check = find(scoreFreshness(schemas, NO_SITEMAP, "article"));
 
     expect(check.status).toBeUndefined();
     expect(check.passed).toBe(false);

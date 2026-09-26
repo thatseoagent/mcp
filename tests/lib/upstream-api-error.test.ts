@@ -64,6 +64,33 @@ describe("a 403 Google explained", () => {
       api: "chromeuxreport.googleapis.com",
     });
   });
+
+  it("says a project without billing needs a billing account, not a different key", async () => {
+    // Web Risk and Natural Language refuse a project with no billing account
+    // even inside their free tier, and the generic 403 sentence sent the
+    // Operator to check the key and the API — both of which were fine.
+    const body = JSON.stringify({
+      error: {
+        details: [
+          {
+            reason: "BILLING_DISABLED",
+            metadata: { service: "webrisk.googleapis.com", consumer: "projects/987654321" },
+          },
+        ],
+      },
+    });
+    const error = await UpstreamApiError.fromResponse("Google's Web Risk API", respond(body, 403));
+
+    expect(error.refusal).toEqual({
+      reason: "billing-disabled",
+      api: "webrisk.googleapis.com",
+      project: "987654321",
+    });
+    expect(error.message).toContain("requires a billing account");
+    expect(error.message).toContain(
+      "https://console.cloud.google.com/billing/linkedaccount?project=987654321",
+    );
+  });
 });
 
 describe("a body that does not say, or says something we will not repeat", () => {

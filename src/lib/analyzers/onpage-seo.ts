@@ -4,7 +4,6 @@ import { readPage } from "./parsed-page";
 import { declaredLanguage } from "./page-language";
 import { countWords } from "../text-analyzer";
 import { arrivedInStaticHtml } from "./content-signals";
-import { notScored } from "./scored-checks";
 import { annotate, GOOGLE_SAYS, agentOperability } from "./check-source";
 import { auditAgentOperability, type AgentOperabilityResult } from "./agent-operability";
 import {
@@ -48,8 +47,14 @@ export interface OnPageSeoResult {
    * `issues` is what to fix, so a `notScored(...)` sentence in it renders as
    * "Fix: Not scored: … This is not a finding about the page". These are
    * questions we failed to ask, not answers about the page.
+   *
+   * A subject and a reason rather than a `notScored` sentence, because this
+   * analysis scores nothing — "Not scored" described a score that does not
+   * exist — and because they are printed under `NOT CHECKED`, whose lines name
+   * what was not checked before saying why. The reason still says it is not a
+   * finding about the page, which is the half that matters.
    */
-  notes: string[];
+  notChecked: Array<{ subject: string; reason: string }>;
 }
 
 // Was a third, private user agent pointing at +https://github.com/seo-mcp — a URL
@@ -191,7 +196,7 @@ export async function analyzeOnPageSeo(
   });
 
   // ── Issues ──
-  const { issues, notes } = detectIssues({
+  const { issues, notChecked } = detectIssues({
     contentArrivedInStaticHtml: arrivedInStaticHtml(readable),
     title,
     description,
@@ -234,7 +239,7 @@ export async function analyzeOnPageSeo(
     jsonLd,
     hreflang,
     issues,
-    notes,
+    notChecked,
   };
 }
 
@@ -339,9 +344,12 @@ function pageFacts(data: ParsedPage): PageFacts {
   };
 }
 
-function detectIssues(data: ParsedPage): { issues: string[]; notes: string[] } {
+function detectIssues(data: ParsedPage): {
+  issues: string[];
+  notChecked: OnPageSeoResult["notChecked"];
+} {
   const issues: string[] = [];
-  const notes: string[] = [];
+  const notChecked: OnPageSeoResult["notChecked"] = [];
 
   // Title, description, H1, canonical, viewport, lang and alt text are all SEO
   // Rules, and this file no longer states any of them. Each one used to be an
@@ -358,12 +366,13 @@ function detectIssues(data: ParsedPage): { issues: string[]; notes: string[] } {
   // cannot be asked of a page whose copy a browser assembles, and staying quiet
   // would make a React shell look like a clean page.
   for (const id of evaluated.notEvaluated) {
-    notes.push(
-      notScored(
-        `the "${id}" rule needs the page's copy, and this page returned almost none in its HTML`,
-        "the content is most likely rendered by JavaScript; server-side rendering would make it visible to us and to any crawler that does not run scripts",
-      ),
-    );
+    notChecked.push({
+      subject: `The "${id}" rule`,
+      reason:
+        "it needs the page's copy, and this page returned almost none in its HTML. This is not a " +
+        "finding about the page — the content is most likely rendered by JavaScript; server-side " +
+        "rendering would make it visible to us and to any crawler that does not run scripts.",
+    });
   }
 
   // Links Google cannot follow. Reported with an example rather than a bare
@@ -404,7 +413,7 @@ function detectIssues(data: ParsedPage): { issues: string[]; notes: string[] } {
   // for ranking purposes", and the 300-word rule this file used to enforce
   // flagged every contact page and every well-made short answer.
 
-  return { issues, notes };
+  return { issues, notChecked };
 }
 
 // ── Section types (co-located with the module that produces them) ──────────────

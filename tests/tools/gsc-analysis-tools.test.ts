@@ -16,6 +16,7 @@ import { handler as richResults } from "@/tools/gsc-rich-results";
 import { handler as featuredSnippets } from "@/tools/gsc-detect-featured-snippets";
 import { handler as serpGap } from "@/tools/gsc-serp-features-gap";
 import { fakeGoogleReader } from "@/lib/google/fake-reader";
+import { UpstreamApiError } from "@/lib/upstream-api-error";
 import { resetPersistence } from "@/lib/db/runtime";
 import type { SearchAnalyticsRow, SearchAnalyticsQuery } from "@/lib/google/reader";
 import { resetAllSingleFlightCaches } from "@/lib/single-flight";
@@ -262,7 +263,7 @@ describe("gsc_discover_performance", () => {
 });
 
 describe("the Tools that inspect a sample", () => {
-  const args = { force_refresh: undefined, siteUrl: "example.com", days: undefined };
+  const args = { force_refresh: undefined, siteUrl: "example.com", startDate: undefined, endDate: undefined, days: undefined };
 
   /** A property with pages, each inspectable. */
   function withPages(pages: Array<[string, number]>, inspection: (url: string) => unknown) {
@@ -322,9 +323,61 @@ describe("the Tools that inspect a sample", () => {
 
     for (const run of [indexCoverage, crawlFreshness, richResults]) {
       const text = textOf(await run(args, google));
-      expect(text).toContain("=== WHAT WAS SAMPLED ===");
-      expect(text).toContain("chosen by impressions");
+      const basis = text.slice(text.indexOf("=== WHAT THIS IS BASED ON ==="));
+      expect(basis).toContain("Sample: 1 of the 1 page(s) Search Console reported for this window");
+      expect(basis).toContain("chosen by impressions");
     }
+  });
+
+  it("every sampling Tool names the window it chose pages from", async () => {
+    // They resolved the property and the window by hand, so none of them printed
+    // the window and none fell back to the other property shape. `fetchRows` does
+    // both, and its footer says what the rows are.
+    const google = withPages([["https://example.com/a", 900]], () => ({
+      inspectionResult: { indexStatusResult: { verdict: "PASS" } },
+    }));
+
+    for (const run of [indexCoverage, crawlFreshness, richResults]) {
+      const text = textOf(await run(args, google));
+      expect(text).toMatch(/^Window: \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2}$/m);
+      expect(text).toContain("=== WHAT THIS IS BASED ON ===");
+    }
+  });
+
+  it("every sampling Tool rejects when Google refuses the property's inspections", async () => {
+    // A 403 is the same answer for every URL, so twenty rows of it would be a
+    // report built on nothing. ADR-0003: the refusal is the answer.
+    const google = fakeGoogleReader({
+      searchConsole: {
+        searchAnalytics: async () => [row(["https://example.com/a"], 0, 900, 5)],
+        inspectUrl: async () => {
+          throw new UpstreamApiError("Google Search Console", 403);
+        },
+      },
+    });
+
+    for (const run of [indexCoverage, crawlFreshness, richResults]) {
+      await expect(run(args, google)).rejects.toBeInstanceOf(UpstreamApiError);
+    }
+  });
+
+  it("every sampling Tool lists a URL Google could not answer for, and reports the rest", async () => {
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const google = fakeGoogleReader({
+      searchConsole: {
+        searchAnalytics: async () => [row(["https://example.com/a"], 0, 900, 5), row(["https://example.com/b"], 0, 800, 5)],
+        inspectUrl: async (_property: string, url: string) => {
+          if (url.endsWith("/b")) throw new UpstreamApiError("Google Search Console", 500);
+          return { inspectionResult: { indexStatusResult: { verdict: "PASS", coverageState: "Submitted and indexed" } } };
+        },
+      },
+    });
+
+    const text = textOf(await indexCoverage(args, google));
+
+    expect(text).toContain("Indexed: 1 of 1 inspected");
+    expect(text).toContain("=== NOT CHECKED (1) ===\nAn inspection that did not complete leaves its page in no figure above.");
+    expect(text).toContain("  https://example.com/b — Google Search Console returned HTTP 500.");
   });
 
   it("crawl freshness treats a missing date as unknown, not as never", async () => {

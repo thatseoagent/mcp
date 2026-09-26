@@ -2,7 +2,8 @@
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
 import { toolText } from "../lib/tool-result";
-import { readReport, renderReport } from "../lib/google/ga4-report";
+import { readReport, renderReport, reportBasis } from "../lib/google/ga4-report";
+import { basisSection } from "../lib/render-basis";
 import { ga4Window, ga4WindowSchema } from "../lib/google/ga4-tool-shape";
 import type { GoogleReader } from "../lib/google/reader";
 
@@ -45,6 +46,8 @@ export async function handler(
     metrics: ["keyEvents", "eventCount"],
     orderBys: [{ metric: { metricName: "keyEvents" }, desc: true }],
     limit: 50,
+    // For the totals line `renderReport` prints; Google sends none unless asked.
+    metricAggregations: ["TOTAL"],
   });
 
   const table = readReport(byEvent);
@@ -55,12 +58,6 @@ export async function handler(
   const converting = table.rows.filter((row) => (row.metrics[0] ?? 0) > 0);
 
   const lines: string[] = [...window.header];
-
-  for (const caveat of table.caveats) {
-    lines.push("");
-    lines.push(`Note: ${caveat}`);
-  }
-
   lines.push("");
   if (converting.length === 0) {
     lines.push("No key events were recorded in this window.");
@@ -72,6 +69,7 @@ export async function handler(
     lines.push("work. The full event list below shows what is being collected either way.");
     lines.push("");
     lines.push(...renderReport(table));
+    lines.push(...basisSection(reportBasis(table)));
     return toolText(lines.join("\n"));
   }
 
@@ -86,6 +84,7 @@ export async function handler(
   const total = converting.reduce((sum, row) => sum + (row.metrics[0] ?? 0), 0);
   lines.push("");
   lines.push(`Total key events across these: ${total}`);
+  lines.push(...basisSection(reportBasis(table)));
 
   return toolText(lines.join("\n"));
 }

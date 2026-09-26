@@ -51,13 +51,23 @@ export interface DateWindow {
  * @param days how many days the caller wants, when they gave no explicit dates.
  */
 export function resolveWindow(
-  options: { startDate?: string; endDate?: string; days?: number },
+  options: { startDate?: string; endDate?: string; days?: number; fresh?: boolean },
   now = new Date(),
 ): DateWindow {
   const notes: string[] = [];
 
-  const endDate = options.endDate ?? daysAgo(LAG_DAYS, now);
-  if (!options.endDate) {
+  // Fresh data is the one case where ending today is the point rather than the
+  // bug: the caller asked for the days still being collected, and Google says
+  // which ones those are. The lag argument above still holds for what those days
+  // *mean*, so the note says it rather than dropping it.
+  const endDate = options.endDate ?? (options.fresh ? pacificToday(now) : daysAgo(LAG_DAYS, now));
+  if (!options.endDate && options.fresh) {
+    notes.push(
+      `The window ends ${endDate}, today in Pacific Time, because fresh data was asked for. ` +
+        `The last two or three days are still being collected: their numbers will rise, so they ` +
+        `are not yet comparable with finished days.`,
+    );
+  } else if (!options.endDate) {
     notes.push(
       `The window ends ${endDate}, ${LAG_DAYS} days back: Search Console data lags by two to ` +
         `three days, and including today would end the range with days that are empty because ` +
@@ -65,7 +75,14 @@ export function resolveWindow(
     );
   }
 
-  const requestedStart = options.startDate ?? daysAgo(LAG_DAYS + (options.days ?? 28), now);
+  // Both ends are inclusive, so a window of `days` days starts `days - 1` before
+  // its end. It started `days` before, which made the default "28 days" 29 —
+  // one more day than it said, and one more than a GA4 `28daysAgo`–`yesterday`
+  // window it might be set beside.
+  const span = Math.max(1, options.days ?? 28);
+  const requestedStart =
+    options.startDate ??
+    (options.fresh ? shiftDate(endDate, -(span - 1)) : daysAgo(LAG_DAYS + span - 1, now));
   const earliest = daysAgo(RETENTION_DAYS, now);
 
   let startDate = requestedStart;
@@ -79,4 +96,115 @@ export function resolveWindow(
   }
 
   return { startDate, endDate, notes };
+}
+
+// ── Pacific Time ─────────────────────────────────────────────────────────────
+//
+// Search Console's dates are Pacific Time — Google's reference says so of every
+// date in the API, and its hour keys carry the offset (`-07:00` or `-08:00`).
+// The finished-data window above can afford UTC because it ends three days back
+// and a few hours either way lands on the same day. A window that ends *today*
+// cannot: for eight hours of every UTC day, UTC's today is a day Google has not
+// started yet.
+
+const PACIFIC = "America/Los_Angeles";
+
+/** `YYYY-MM-DD` for today, in the timezone Search Console keeps its days in. */
+export function pacificToday(now = new Date()): string {
+  // `en-CA` formats as `YYYY-MM-DD`, which is the only reason it is chosen.
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: PACIFIC,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
+/** A `YYYY-MM-DD` date moved by whole days. Calendar arithmetic, so no timezone applies. */
+export function shiftDate(date: string, days: number): string {
+  const moved = new Date(`${date}T00:00:00Z`);
+  moved.setUTCDate(moved.getUTCDate() + days);
+  return isoDate(moved);
+}
+
+/** How many days back Google keeps the hourly breakdown. */
+export const HOURLY_RETENTION_DAYS = 10;
+
+/**
+ * The last `days` Pacific days, today included — the window an hourly read asks for.
+ *
+ * Today included because that is the question an hourly read exists for ("did
+ * the 14:00 deploy change anything today?"). Clamped to Google's ten days,
+ * because the eleventh would come back empty and read as a site that got no
+ * traffic that day.
+ */
+export function hourlyWindow(days: number, now = new Date()): { startDate: string; endDate: string } {
+  const span = Math.min(HOURLY_RETENTION_DAYS, Math.max(1, Math.floor(days)));
+  const endDate = pacificToday(now);
+  return { startDate: shiftDate(endDate, -(span - 1)), endDate };
+}
+
+// ── Calendar months ──────────────────────────────────────────────────────────
+
+export interface CalendarMonth {
+  /** `YYYY-MM`. */
+  month: string;
+  startDate: string;
+  endDate: string;
+}
+
+export interface MonthsWindow {
+  /** Oldest first, every one of them complete. */
+  months: CalendarMonth[];
+  startDate: string;
+  endDate: string;
+  notes: string[];
+}
+
+/**
+ * The last `count` **complete** calendar months Search Console still holds.
+ *
+ * Complete, because a month-by-month comparison with a partial month at either
+ * end is the lag bug again at a coarser grain: the current month is short by
+ * however many days are left in it, and would read as a decline every time.
+ * So the newest month is the last one whose final day is outside the lag, and
+ * the oldest is dropped rather than half-read when retention has already eaten
+ * its first days.
+ */
+export function calendarMonths(count: number, now = new Date()): MonthsWindow {
+  const notes: string[] = [];
+  const settled = daysAgo(LAG_DAYS, now);
+  // The month before the one the last settled day is in. If that day is the
+  // last of its month, the month is complete — but one day's head start is not
+  // worth a second rule, and ending a month early is the conservative error.
+  const [year, month] = settled.split("-").map(Number);
+  const months: CalendarMonth[] = [];
+  const earliest = daysAgo(RETENTION_DAYS, now);
+
+  for (let back = count; back >= 1; back--) {
+    const first = new Date(Date.UTC(year, month - 1 - back, 1));
+    const last = new Date(Date.UTC(year, month - back, 0));
+    const startDate = isoDate(first);
+    if (startDate < earliest) continue;
+    months.push({ month: startDate.slice(0, 7), startDate, endDate: isoDate(last) });
+  }
+
+  if (months.length < count) {
+    notes.push(
+      `${months.length} complete month(s) rather than ${count}: Google keeps Search Analytics ` +
+        `for sixteen months, and a month whose first days have already been deleted would read ` +
+        `as a quiet month rather than a missing one.`,
+    );
+  }
+  notes.push(
+    `The current month is left out because it is not over, and the newest month read is the ` +
+      `last one outside Search Console's two-to-three-day lag.`,
+  );
+
+  return {
+    months,
+    startDate: months[0]?.startDate ?? settled,
+    endDate: months[months.length - 1]?.endDate ?? settled,
+    notes,
+  };
 }

@@ -156,9 +156,11 @@ describe("seo_robots_validator", () => {
   });
 
   it("returns text, never throws, when the network fails outright", async () => {
-    globalThis.fetch = vi.fn(async () => {
-      throw new Error("ECONNREFUSED 10.0.0.5:5432");
-    }) as unknown as typeof fetch;
+    serve({
+      "example.com": () => {
+        throw new Error("ECONNREFUSED 10.0.0.5:5432");
+      },
+    });
 
     const result = await seoRobotsValidator({ url: "https://example.com/" });
 

@@ -194,12 +194,13 @@ describe("seo_geo_score — the indexability gate", () => {
 /**
  * A sitemap index whose children did not load.
  *
- * `fetchSitemapContaining` follows a `<sitemapindex>` into its children, and it
- * used to put every child through `textOrEmpty` without checking `answered()`
- * first — the one thing `well-known.ts` says never to do, because `unavailable`
- * yields `""` too. The failed reads were dropped by a `.filter(Boolean)` and the
- * whole thing stamped `found`, so the site was told "Page is not listed in the
- * sitemap" and docked 5 points over sitemaps nobody opened.
+ * This Tool once followed a `<sitemapindex>` into its children itself, and put
+ * every child through `textOrEmpty` without checking `answered()` first — the one
+ * thing `well-known.ts` says never to do, because `unavailable` yields `""` too.
+ * The failed reads were dropped by a `.filter(Boolean)` and the whole thing
+ * stamped `found`, so the site was told "Page is not listed in the sitemap" and
+ * docked 5 points over sitemaps nobody opened. The index is `site-sitemap.ts`'s
+ * business now; these pin what the Operator reads either way.
  */
 describe("seo_geo_score — a sitemap index whose children did not load", () => {
   const HTML = `<body><article><h1>SEO tips</h1><p>Some words about search.</p></article></body>`;
@@ -284,6 +285,22 @@ describe("seo_geo_score — a sitemap index whose children did not load", () => 
 
     expect(check.mark).not.toBe("?");
     expect(check.detail).toBe("Page is not listed in the sitemap");
+  });
+
+  it("reads the sitemap robots.txt declares, not only /sitemap.xml", async () => {
+    // Only `/sitemap.xml` was ever read, so a site declaring `Sitemap:
+    // /post-sitemap.xml` in robots.txt was told its page was not in a sitemap
+    // it never published.
+    serve({
+      [PAGE]: { body: HTML },
+      "robots.txt": { body: "User-agent: *\nAllow: /\nSitemap: https://example.com/post-sitemap.xml" },
+      "post-sitemap.xml": { body: urlset([PAGE]) },
+      "llms.txt": { status: 404, body: "" },
+    });
+
+    expect(sitemapCheck(await scoreOf()).detail).toBe(
+      "Sitemap has lastmod for this page but the schema has no dateModified",
+    );
   });
 
   it("says so when the index lists more sitemaps than it searches", async () => {

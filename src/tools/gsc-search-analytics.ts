@@ -5,7 +5,7 @@ import { refreshable } from "../lib/with-cache";
 import { toolText } from "../lib/tool-result";
 import { withPropertyFallback } from "../lib/google/property";
 import { resolveWindow } from "../lib/google/gsc-dates";
-import type { GoogleReader, SearchAnalyticsRow } from "../lib/google/reader";
+import type { GoogleReader, SearchAnalyticsResult, SearchAnalyticsRow } from "../lib/google/reader";
 
 export const schema = {
   ...refreshable,
@@ -21,7 +21,10 @@ export const schema = {
     .optional()
     .describe(
       "How to break the numbers down. Omit for site totals. Combining two, such as " +
-        "['page','query'], answers which queries land on which page.",
+        "['page','query'], answers which queries land on which page. There is no `hour` " +
+        "here on purpose: an hourly read needs Google's hourly data state, a window of at " +
+        "most ten days and a same-hour baseline to be read safely, and " +
+        "gsc_hourly_performance does all three.",
     ),
   startDate: z.string().optional().describe("YYYY-MM-DD. Defaults to `days` before the end date."),
   endDate: z
@@ -34,6 +37,15 @@ export const schema = {
     .optional()
     .describe("Which search surface. Default `web`."),
   rowLimit: z.number().int().optional().describe("How many rows to return. Default 25, max 25000."),
+  freshData: z
+    .boolean()
+    .optional()
+    .describe(
+      "Include the days Google is still collecting (its `all` data state), and end the " +
+        "default window today rather than three days back. Default false: finished days only. " +
+        "Fresh numbers for the last two or three days will still rise, and the answer says " +
+        "which days those are when Google reports it — it does when the rows are grouped by `date`.",
+    ),
 };
 
 export const metadata: ToolMetadata = {
@@ -41,7 +53,8 @@ export const metadata: ToolMetadata = {
   description:
     "Read clicks, impressions, CTR and average position from Search Console, broken " +
     "down by query, page, country, device, date or search appearance. This is the " +
-    "raw performance read the analysis Tools are built on. Needs the Google login; " +
+    "raw performance read the analysis Tools are built on; `freshData` adds the days " +
+    "Google is still collecting. Needs the Google login; " +
     "without it this Tool says so.",
   annotations: {
     title: "Read Search Console performance",
@@ -81,8 +94,37 @@ function position(value: number): string {
   return value.toFixed(1);
 }
 
-function renderRows(rows: readonly SearchAnalyticsRow[], dimensions: readonly string[]): string[] {
+/**
+ * What Google said about which days are partial, as lines for the header.
+ *
+ * Google only names the first incomplete day when the rows are grouped by
+ * `date`. Without that dimension its silence says nothing, and reading it as
+ * "every day here is final" would be the false all-clear this is for.
+ */
+function partialDays(firstIncompleteDate: string | undefined, endDate: string, byDate: boolean): string[] {
+  if (firstIncompleteDate) {
+    return [
+      `Partial: ${firstIncompleteDate} to ${endDate} — Google is still collecting these days, so ` +
+        `their numbers will still rise. Do not compare them with finished days yet.`,
+    ];
+  }
+  if (byDate) {
+    return ["Partial: none — Google reported no incomplete day in this window."];
+  }
+  return [
+    "Partial: not stated — Google only names the first incomplete day when the rows are grouped " +
+      "by `date`. These are not, so the totals may include days still being collected; add " +
+      "`date` to the dimensions to see which.",
+  ];
+}
+
+function renderRows(
+  rows: readonly SearchAnalyticsRow[],
+  dimensions: readonly string[],
+  firstIncompleteDate?: string,
+): string[] {
   const lines: string[] = [];
+  const dateIndex = dimensions.indexOf("date");
   const header = dimensions.length > 0 ? dimensions.join(" / ") : "(site total)";
   lines.push(`${header} — clicks / impressions / CTR / avg position`);
 
@@ -90,8 +132,10 @@ function renderRows(rows: readonly SearchAnalyticsRow[], dimensions: readonly st
     // `keys` is absent for an unfiltered query, which is a real answer rather
     // than a missing field: it is the site's total.
     const label = row.keys?.join(" / ") ?? "(all)";
+    const date = dateIndex >= 0 ? row.keys?.[dateIndex] : undefined;
+    const partial = firstIncompleteDate && date && date >= firstIncompleteDate ? " — partial" : "";
     lines.push(
-      `  ${label} — ${row.clicks} / ${row.impressions} / ${percent(row.ctr)} / ${position(row.position)}`,
+      `  ${label} — ${row.clicks} / ${row.impressions} / ${percent(row.ctr)} / ${position(row.position)}${partial}`,
     );
   }
 
@@ -99,31 +143,46 @@ function renderRows(rows: readonly SearchAnalyticsRow[], dimensions: readonly st
 }
 
 export async function handler(
-  { siteUrl, dimensions, startDate, endDate, days, type, rowLimit }: InferSchema<typeof schema>,
+  { siteUrl, dimensions, startDate, endDate, days, type, rowLimit, freshData }: InferSchema<typeof schema>,
   google: GoogleReader,
 ) {
-  const window = resolveWindow({ startDate, endDate, days });
+  const fresh = freshData === true;
+  const window = resolveWindow({ startDate, endDate, days, fresh });
   const wanted = dimensions ?? [];
   const limit = Math.min(MAX_ROW_LIMIT, Math.max(1, rowLimit ?? DEFAULT_ROW_LIMIT));
 
-  const { result: rows, siteUrl: property } = await withPropertyFallback(
+  const query = (resolved: string) => ({
+    siteUrl: resolved,
+    startDate: window.startDate,
+    endDate: window.endDate,
+    dimensions: wanted.length > 0 ? [...wanted] : undefined,
+    type,
+    rowLimit: limit,
+  });
+
+  // Two paths rather than one with an optional field, so a read that did not ask
+  // for fresh data sends exactly the request it always sent. A fresh read goes
+  // through the method that keeps Google's statement of which days are partial:
+  // dropping it would hand over numbers that are still rising with nothing to
+  // say so.
+  const { result, siteUrl: property } = await withPropertyFallback(
     google.searchConsole,
     siteUrl,
-    (resolved) =>
-      google.searchConsole.searchAnalytics({
-        siteUrl: resolved,
-        startDate: window.startDate,
-        endDate: window.endDate,
-        dimensions: wanted.length > 0 ? [...wanted] : undefined,
-        type,
-        rowLimit: limit,
-      }),
+    async (resolved): Promise<SearchAnalyticsResult> =>
+      fresh
+        ? google.searchConsole.searchAnalyticsWithMetadata({ ...query(resolved), dataState: "all" })
+        : { rows: await google.searchConsole.searchAnalytics(query(resolved)) },
   );
+  const { rows, firstIncompleteDate } = result;
 
   const lines: string[] = ["=== SEARCH CONSOLE PERFORMANCE ==="];
   lines.push(`Property: ${property}`);
   lines.push(`Window: ${window.startDate} to ${window.endDate}`);
   lines.push(`Surface: ${type ?? "web"}`);
+  if (fresh) {
+    lines.push("Data: fresh — includes days Google is still collecting");
+    lines.push(...partialDays(firstIncompleteDate, window.endDate, wanted.includes("date")));
+  }
   for (const note of window.notes) {
     lines.push("");
     lines.push(`Note: ${note}`);
@@ -162,7 +221,7 @@ export async function handler(
   );
 
   lines.push("");
-  lines.push(...renderRows(rows, wanted));
+  lines.push(...renderRows(rows, wanted, fresh ? firstIncompleteDate : undefined));
 
   return toolText(lines.join("\n"));
 }

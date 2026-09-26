@@ -1,19 +1,13 @@
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
-import { refreshable } from "../lib/with-cache";
 import { toolText } from "../lib/tool-result";
-import { z } from "zod";
-import { resolveSiteUrl } from "../lib/google/property";
-import { resolveWindow } from "../lib/google/gsc-dates";
-import { inspectBusiestPages, whatWasSampled } from "../lib/google/inspected-sample";
+import { fetchRows, gscWindowSchema } from "../lib/google/gsc-tool-shape";
+import { busiest, inspectPages, sampleNote, SAMPLE_SIZE, UNINSPECTED_NOTE } from "../lib/google/busiest-pages";
 import type { GoogleReader } from "../lib/google/reader";
-import { withheld } from "../lib/render-list";
+import { capped } from "../lib/render-list";
+import { basisSection, notCheckedSection } from "../lib/render-basis";
 
-export const schema = {
-  ...refreshable,
-  siteUrl: z.string().describe("The Search Console property, or just the domain."),
-  days: z.number().int().optional().describe("Window used to pick the busiest pages. Default 28."),
-};
+export const schema = gscWindowSchema;
 
 export const metadata: ToolMetadata = {
   name: "gsc_crawl_freshness",
@@ -46,24 +40,37 @@ function daysSince(iso: string): number | null {
   return Math.floor((Date.now() - at) / 86_400_000);
 }
 
-export async function handler(
-  { siteUrl, days }: InferSchema<typeof schema>,
-  google: GoogleReader,
-) {
-  const property = await resolveSiteUrl(google.searchConsole, siteUrl);
-  const window = resolveWindow({ days: days ?? 28 });
-  const sample = await inspectBusiestPages(google.searchConsole, property, window);
+export async function handler(args: InferSchema<typeof schema>, google: GoogleReader) {
+  const fetched = await fetchRows(google.searchConsole, args, { dimensions: ["page"], title: "CRAWL FRESHNESS" });
+  const chosen = busiest(fetched, { by: "impressions", max: SAMPLE_SIZE, default: SAMPLE_SIZE });
+  const inspected = await inspectPages(
+    google.searchConsole,
+    fetched.property,
+    chosen.pages.map((page) => page.url),
+  );
+  // Closes every answer below, the empty ones included: an inspection that did
+  // not complete is as absent from "nothing to say" as from a median.
+  const sample = sampleNote({ reported: chosen.reported, chosen: chosen.pages.length, by: chosen.by, inspected });
+  const note = [
+    ...notCheckedSection(sample.notChecked, { noun: "URLs", note: UNINSPECTED_NOTE }),
+    ...basisSection(fetched.basis, sample),
+  ];
 
-  const crawled = sample.inspected
-    .filter((entry) => entry.ok)
-    .map((entry) => {
-      const last = entry.ok ? entry.summary.index.lastCrawlTime : null;
-      return { url: entry.url, impressions: entry.impressions, last, age: last ? daysSince(last) : null };
-    });
+  const crawled = chosen.pages.flatMap((page, index) => {
+    const entry = inspected[index];
+    if (!entry.ok) return [];
+    const last = entry.summary.index.lastCrawlTime;
+    return [{ url: page.url, impressions: page.impressions, last, age: last ? daysSince(last) : null }];
+  });
 
-  const lines: string[] = ["=== CRAWL FRESHNESS ==="];
-  lines.push(`Property: ${property}`);
+  const lines: string[] = [...fetched.header];
   lines.push("");
+
+  if (chosen.pages.length === 0) {
+    lines.push("No page had impressions in this window, so there was nothing to inspect.");
+    lines.push(...note);
+    return toolText(lines.join("\n"));
+  }
 
   const dated = crawled.filter((entry) => entry.age !== null);
   const undated = crawled.filter((entry) => entry.age === null);
@@ -74,7 +81,7 @@ export async function handler(
     // date of never would be inventing one.
     lines.push("Google reported no last-crawl date for any page inspected.");
     lines.push("That is an absence of information rather than a crawl that never happened.");
-    lines.push(...whatWasSampled(sample));
+    lines.push(...note);
     return toolText(lines.join("\n"));
   }
 
@@ -89,10 +96,12 @@ export async function handler(
     lines.push(`No page inspected has gone more than ${STALE_DAYS} days without a visit.`);
   } else {
     lines.push(`=== NOT VISITED IN ${STALE_DAYS}+ DAYS (${stale.length}) ===`);
-    for (const entry of stale.slice(0, 20)) {
-      lines.push(`  ${entry.url} — ${entry.age} days, ${entry.impressions} impressions`);
-    }
-    lines.push(...withheld(stale.length, MAX_STALE_SHOWN));
+    lines.push(
+      ...capped(
+        stale.map((entry) => `${entry.url} — ${entry.age} days, ${entry.impressions} impressions`),
+        MAX_STALE_SHOWN,
+      ),
+    );
     lines.push("");
     lines.push(`${STALE_DAYS} days is our threshold, not Google's — it publishes no crawl`);
     lines.push("schedule. A page Google visits rarely is usually a page it considers stable or");
@@ -105,7 +114,7 @@ export async function handler(
     lines.push(`${undated.length} page(s) had no crawl date reported and are excluded above.`);
   }
 
-  lines.push(...whatWasSampled(sample));
+  lines.push(...note);
   return toolText(lines.join("\n"));
 }
 

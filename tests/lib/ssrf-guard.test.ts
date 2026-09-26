@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Mock DNS resolution so hostname tests are deterministic and offline.
 const lookupMock = vi.fn();
@@ -6,7 +6,8 @@ vi.mock("node:dns/promises", () => ({
   lookup: (...args: unknown[]) => lookupMock(...args),
 }));
 
-import { isBlockedAddress, assertUrlAllowed, SsrfError } from "@/lib/ssrf-guard";
+import { isBlockedAddress, assertUrlAllowed, safeFetch, SsrfError } from "@/lib/ssrf-guard";
+import { requestsOf, serve } from "../helpers/serve";
 
 describe("isBlockedAddress", () => {
   it("blocks IPv4 loopback / private / link-local / reserved ranges", () => {
@@ -94,5 +95,31 @@ describe("assertUrlAllowed", () => {
       { address: "127.0.0.1", family: 4 },
     ]);
     await expect(assertUrlAllowed("http://mixed.example.com/")).rejects.toBeInstanceOf(SsrfError);
+  });
+});
+
+describe("credentials on a redirect", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("never carries a credential header to another origin, Google's key header included", async () => {
+    lookupMock.mockResolvedValue([{ address: "93.184.216.34", family: 4 }]);
+    const mock = serve({
+      "https://webrisk.googleapis.com/v1/uris:search": {
+        status: 302,
+        headers: { location: "https://elsewhere.example/" },
+      },
+      "https://elsewhere.example/": { body: "ok" },
+    });
+
+    await safeFetch("https://webrisk.googleapis.com/v1/uris:search", {
+      headers: { "x-goog-api-key": "secret", Authorization: "Bearer secret", Accept: "application/json" },
+    });
+
+    const [first, second] = requestsOf(mock);
+    expect(first?.headers["x-goog-api-key"]).toBe("secret");
+    expect(second?.url).toBe("https://elsewhere.example/");
+    expect(second?.headers).toEqual({ accept: "application/json" });
   });
 });

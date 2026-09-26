@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import entityMentions from "@/tools/entity-mentions";
-import { serve, type Route } from "../helpers/serve";
+import { requestsOf, serve, type Route } from "../helpers/serve";
 import { resetAllSingleFlightCaches } from "@/lib/single-flight";
 
 const originalFetch = globalThis.fetch;
@@ -18,18 +18,14 @@ afterEach(() => {
 const textOf = (result: Awaited<ReturnType<typeof entityMentions>>): string =>
   result.content.map((part) => part.text).join("\n");
 
-/** `serve`, plus a record of every URL asked for — what we searched matters here. */
-function serveWatching(routes: Record<string, Route>): string[] {
-  serve(routes);
-  const inner = globalThis.fetch;
-  const seen: string[] = [];
-  globalThis.fetch = vi.fn(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
-    seen.push(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
-    );
-    return inner(input, init);
-  }) as unknown as typeof fetch;
-  return seen;
+/** `serve`, and the URLs it was asked for once the run is over — what we searched matters here. */
+function serveWatching(routes: Record<string, Route>): { readonly urls: string[] } {
+  const mock = serve(routes);
+  return {
+    get urls() {
+      return requestsOf(mock).map((request) => request.url);
+    },
+  };
 }
 
 const HOMEPAGE = `<!DOCTYPE html><html lang="en"><head>
@@ -205,9 +201,12 @@ describe("entity_mentions — the Publishing Entity", () => {
     const text = await audit("https://peralta.es");
 
     expect(text).toContain("Brand detected: Comercial Peralta (declared in schema)");
-    // And that is what went out to the lookups, not "Ofertas del día".
-    expect(seen.some((url) => url.includes("Comercial%20Peralta"))).toBe(true);
-    expect(seen.some((url) => url.includes("Ofertas"))).toBe(false);
+    // And that is what went out to the lookups, not "Ofertas del día". Decoded,
+    // because each API spells a space its own way: `+` in a query string, `_` in
+    // a Wikipedia title.
+    const asked = seen.urls.map((url) => decodeURIComponent(url.replace(/\+/g, " ")).replace(/_/g, " "));
+    expect(asked.some((url) => url.includes("Comercial Peralta"))).toBe(true);
+    expect(seen.urls.some((url) => url.includes("Ofertas"))).toBe(false);
   });
 
   it("asks the page's own Wikipedia edition first", async () => {
@@ -225,7 +224,7 @@ describe("entity_mentions — the Publishing Entity", () => {
 
     expect(text).toMatch(/Wikipedia \[API check\]: FOUND.*es\.wikipedia\.org/);
     // A hit in the page's own language is conclusive, so English is never asked.
-    expect(seen.some((url) => url.includes("en.wikipedia.org"))).toBe(false);
+    expect(seen.urls.some((url) => url.includes("en.wikipedia.org"))).toBe(false);
   });
 
   it("falls back to English only when the page's language has no article", async () => {
@@ -243,7 +242,7 @@ describe("entity_mentions — the Publishing Entity", () => {
 
     const text = await audit("https://peralta.es");
 
-    expect(seen.some((url) => url.includes("es.wikipedia.org"))).toBe(true);
+    expect(seen.urls.some((url) => url.includes("es.wikipedia.org"))).toBe(true);
     expect(text).toMatch(/Wikipedia \[API check\]: FOUND.*en\.wikipedia\.org/);
   });
 
@@ -253,7 +252,7 @@ describe("entity_mentions — the Publishing Entity", () => {
     await audit("https://peralta.es");
 
     expect(
-      seen.some((url) => url.includes("wikidata.org") && url.includes("language=es")),
+      seen.urls.some((url) => url.includes("wikidata.org") && url.includes("language=es")),
     ).toBe(true);
   });
 

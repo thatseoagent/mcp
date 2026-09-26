@@ -99,12 +99,15 @@ not a ration, and the two must never be phrased alike.
 The caps that do exist are none of this, and a reader meeting one should know
 which kind it is:
 
-- **Politeness.** `crawl-pacing.ts` spaces requests to one origin and `robots-gate.ts`
-  obeys robots.txt, because every fetch carries `ThatSEOAgentBot` and an
-  unthrottled loop is us hammering a stranger's server under our own name.
+- **Politeness.** `crawl-pacing.ts` spaces requests to one origin of a Site and
+  `robots-gate.ts` obeys robots.txt, because every fetch carries `ThatSEOAgentBot`
+  and an unthrottled loop is us hammering a stranger's server under our own name.
+  It does not pace the fixed third-party APIs; those have the next kind.
 - **Somebody else's ceiling.** Google rations URL inspections per property per day
-  and caps a Search Analytics request at 25,000 rows. Asking for more does not
-  get more.
+  and caps a Search Analytics request at 25,000 rows; CrUX takes 150 queries a
+  minute and Wikimedia 200, and `third-party-api.ts` waits for each API's own
+  per-minute figure rather than meeting its 429. Asking for more does not get
+  more.
 - **Reading length.** `crawl_site` walks 25 pages by default and 50 at most, and
   `hreflang` checks 25 alternates: each one is a stated reading depth a caller can
   see, not an allowance.

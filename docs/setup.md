@@ -111,8 +111,9 @@ Both are free. With your project selected:
    and click **Enable**.
 2. Go to <https://console.cloud.google.com/apis/library/analyticsdata.googleapis.com>
    and click **Enable**.
-3. If you also want `ga4_list_properties` to work, enable
-   <https://console.cloud.google.com/apis/library/analyticsadmin.googleapis.com>.
+3. Go to <https://console.cloud.google.com/apis/library/analyticsadmin.googleapis.com>
+   and click **Enable**. `ga4_list_properties`, `ga4_setup_audit` and
+   `ga4_annotations` read it; without it they answer with the page that enables it.
 
 ### 2.3 Configure the consent screen
 
@@ -254,6 +255,61 @@ The Site remembers it, so you only do this once per site.
 
 The second run is where the database earns its place. `run_site_audit` compares
 against the last one, and `seo_metric_trend` shows the whole series.
+
+---
+
+## Billed Google Cloud APIs
+
+Two Tools read sources that need a key of their own. Nothing above depends on
+them; set up only the ones you want. Each Tool that is missing its key says which
+variable to set and where to get it.
+
+### `GOOGLE_CLOUD_API_KEY` — `web_risk_check` and `page_entities`
+
+Both APIs need **billing enabled** on the Google Cloud project, even inside their
+free tiers. That is a different decision from the free `PAGESPEED_API_KEY`, so
+this is a separate variable: the PageSpeed key never has to live on a billed
+project.
+
+1. Pick or create a project with billing at
+   <https://console.cloud.google.com/billing>.
+2. Enable what you need on it:
+   - `web_risk_check`: the Web Risk API,
+     <https://console.cloud.google.com/apis/library/webrisk.googleapis.com>.
+     The first 100,000 lookups a month are free, then $0.50 per 1,000
+     (<https://cloud.google.com/web-risk/pricing>).
+   - `page_entities`: the Cloud Natural Language API,
+     <https://console.cloud.google.com/apis/library/language.googleapis.com>.
+     Entity analysis is free for 5,000 units a month and classification for
+     30,000; a unit is 1,000 characters of text
+     (<https://cloud.google.com/natural-language/pricing>). The Tool sends at most
+     10,000 characters of a page, and the page's text goes to Google Cloud.
+3. Create an API key at <https://console.cloud.google.com/apis/credentials> and
+   put it in `.env` as `GOOGLE_CLOUD_API_KEY=...`.
+
+Restart the server after editing `.env`, as in [2.7](#27-restart-the-server).
+
+---
+
+## Free external sources: Wayback Machine, Wikimedia, Open PageRank
+
+`wayback_history` reads the Internet Archive's Wayback CDX API and
+`brand_pageviews` reads Wikimedia's pageview data. Both are free and need
+**no key**: they work straight after [section 1](#1-install-and-connect).
+
+`domain_authority` reads Open PageRank and needs a free key of its own.
+
+### `OPEN_PAGERANK_API_KEY` — `domain_authority`
+
+1. Sign in at <https://openpagerank.keywordseverywhere.com/dashboard> with a
+   Keywords Everywhere API key. If you have none, the sign-in page offers a free
+   one.
+2. Create an OPR API key on that dashboard.
+3. Put it in `.env` as `OPEN_PAGERANK_API_KEY=...` and restart the server.
+
+The free plan covers 30,000 domain lookups a month at 60 requests a minute, with
+no card. Each domain counts once per call, so comparing a site with nine
+competitors spends ten.
 
 ---
 

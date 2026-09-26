@@ -17,7 +17,7 @@ failure message to its fix.
 
 Node 24 or newer, and `pnpm`.
 
-Nothing else to start with. Around forty Tools do **Basic Analysis**, which reads
+Nothing else to start with. Around twenty Tools do **Basic Analysis**, which reads
 a site's public surface alone and works on any domain, including ones you do not
 own. The Search Console and Analytics Tools additionally need **Property Access**
 — a Google account that can read the site's Google Property — and the SQLite
@@ -94,6 +94,11 @@ no credentials and no database.
   OpenAPI or MCP description it publishes.
 - `seo_llms_txt` — reads and scores a site's `/llms.txt`, and generates one from
   the site's own pages.
+- `wayback_history` — what the Wayback Machine holds for a URL: first and latest
+  capture, content versions, and when it started redirecting or answering 404;
+  across a path or domain, which archived pages are lost now.
+- `brand_pageviews` — how interest in a brand's Wikipedia article has moved over
+  time: trend, peaks and year over year. A proxy while Google Trends has no open API.
 
 Every outbound request obeys the target site's `robots.txt` and paces itself, so a
 crawl of fifty pages is never a burst at somebody else's server. Requests identify
@@ -112,7 +117,9 @@ is reported as not run, never as a failure.
 - `sync_gsc_properties` — registers domains as Sites and asks Google which of
   them a Full Report is possible for.
 - `run_page_audit` — audits one page and keeps the result. Run it before and
-  after a change and the second run reports what moved.
+  after a change and the second run reports what moved. The checks a run could
+  not make — a rule a JavaScript-rendered page gives no text for, headers that
+  could not be read — are listed as not checked and never compared as a change.
 - `get_page_audits` — reads those back, per Site or per page.
 
 `run_site_audit` **refuses rather than degrading**. Without the Google login, or
@@ -163,6 +170,14 @@ domain will resolve on its own from then on.
 - `ga4_ai_traffic` — how much traffic arrives from ChatGPT, Perplexity, Claude,
   Gemini, Copilot and the rest, which pages they land on, and whether it is
   growing. No other Tool here answers this.
+- `ga4_setup_audit` — whether the property is set up to measure what an SEO
+  needs: retention, web streams, enhanced measurement, key events and how they
+  are counted, attribution, Signals, reporting identity, channel groups and
+  Ads/BigQuery links, each with why it matters. No score.
+- `ga4_annotations` — what the property itself says happened, and when: its
+  annotations in a window, to line up with a traffic shift.
+- `ga4_funnel_report` — of the people who did step 1, how many reached each next
+  step and where the rest dropped off, for a 2–10 step funnel.
 
 The interpreted read of the same data:
 
@@ -182,6 +197,20 @@ The interpreted read of the same data:
 - `gsc_index_coverage_analysis` / `gsc_crawl_freshness` / `gsc_rich_results` —
   Google's own record for a sample of the busiest pages.
 - `gsc_discover_performance` — the feed, which has no queries and no ranking.
+- `gsc_hourly_performance` — clicks and impressions hour by hour over the last
+  ten days at most, each hour against the same hour on earlier days, with the
+  hours Google is still collecting marked. The Tool for "did today's deploy
+  change anything?".
+- `gsc_content_decay` — pages losing search clicks over up to sixteen months,
+  with a year-over-year check to tell a falling page from a seasonal one.
+- `gsc_page_value` — Search Console clicks joined to GA4 organic sessions,
+  engagement and key events per page: clicks that are worth little, and value
+  that is barely seen.
+
+`gsc_search_analytics` also takes `freshData`, which reads up to today and names
+the days Google is still collecting. `gsc_branded_split` is this server's split
+by the brand terms you give it: Google's own branded-queries filter is not in
+the Search Console API.
 
 Every one of these says what it is based on: how many rows it read, whose
 threshold it applied, and that an absence of findings is an absence in those rows
@@ -190,32 +219,100 @@ rather than a fact about the site.
 A bare domain works anywhere a property is asked for: `example.com` is matched
 against the properties the account holds, preferring the Domain Property.
 
+## Search Console against the site itself
+
+These cross the Operator's own Google data with the site's public pages, so they
+need the Google login and fetch the site the way the credential-free Tools do —
+obeying its `robots.txt` and pacing themselves. A page that could not be read is
+reported as not checked, never as a finding.
+
+- `site_orphan_pages` — pages Google shows that the site's own links do not reach
+  within a crawl of up to 50 pages, sitemap or crawled pages with no impressions,
+  and how many URLs are only in the sitemap, only in the crawl, or in both.
+- `site_title_query_fit` — whether the busiest pages' titles and H1s carry the
+  words of the queries they are found for.
+- `site_schema_detection_gap` — the structured data each busy page declares
+  against the rich results URL Inspection says Google detected.
+- `site_hreflang_country_gap` — countries the site is seen in without a version
+  in their language, and hreflang alternates aimed at countries where it is
+  barely seen.
+- `site_lastmod_accuracy` — whether sitemap `<lastmod>` dates can be believed,
+  compared with Google's last crawl for a sample of URLs.
+- `site_ai_landing_signals` — what the pages AI assistants send people to have in
+  common, against busy organic pages no assistant sent anyone to.
+- `site_ai_crawler_traffic` — whether `robots.txt` blocks the search crawlers of
+  the assistants that are sending the site visitors, or only their training
+  crawlers.
+- `site_vitals_by_traffic` — the busiest Search Console pages ranked by clicks ×
+  how far their Core Web Vitals are from "good". Also needs `PAGESPEED_API_KEY`
+  with the Chrome UX Report API enabled.
+
+The URL-inspecting ones spend Search Console's inspection allowance, 2,000 a day
+per property, and each says how many it used.
+
 ## Needs configuration
 
-Two Tools need something set before they can work:
+These need something set before they can work:
 
 - `pagespeed_insights` — Google's PageSpeed Insights for a URL, reporting both
   halves separately: field data (what real Chrome users experienced over the last
   28 days, which is what Google ranks on) and lab data (one throttled Lighthouse
-  run, which is a diagnostic). Needs `PAGESPEED_API_KEY`.
-- `crux_history` — the same field data as a series: the last 25 weekly
-  collection periods from the Chrome UX Report History API, for a page or a whole
-  origin, each rated against Google's thresholds, with when the rating last
-  changed. The Tool for "did the fix move anything?". Needs the same
-  `PAGESPEED_API_KEY`, with the Chrome UX Report API also enabled on its project.
+  run, which is a diagnostic), plus the third parties the page loads. The field
+  data comes from the Chrome UX Report API, because Google has announced PSI will
+  stop carrying it. Needs `PAGESPEED_API_KEY`.
+- `crux_history` — the same field data as a series: the last 40 weekly
+  collection periods (about nine months) from the Chrome UX Report History API,
+  for a page or a whole origin, each rated against Google's thresholds, with when
+  the rating last changed, and the diagnostics behind LCP and navigation. The
+  Tool for "did the fix move anything?". Needs the same `PAGESPEED_API_KEY`.
+- `web_risk_check` — whether Google lists the homepage, or up to nine other URLs,
+  as malware, phishing or unwanted software: the only programmatic view of what
+  Search Console's Security Issues report would show. Needs `GOOGLE_CLOUD_API_KEY`.
+- `page_entities` — which entities a page is about, ranked by salience with their
+  Wikipedia and Knowledge Graph identity, whether its own subject leads, and its
+  content categories. Sends the page's text to Google Cloud. Needs
+  `GOOGLE_CLOUD_API_KEY`.
+- `domain_authority` — link authority for a site and up to nine competitors side
+  by side, from Open PageRank's Common Crawl estimate. Not a Google metric. Needs
+  `OPEN_PAGERANK_API_KEY`.
 
-Put it in a `.env` file at the root of the server:
+### What each variable is for
+
+Every variable is optional. Set only the ones for the Tools you want; each Tool
+that is missing its variable says which one and where to get a value.
+
+| Variable | Tools | What to enable | Cost |
+|---|---|---|---|
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | every `gsc_*`, `ga4_*` and `site_*` Tool, `run_site_audit`, `sync_gsc_properties` | A "Desktop app" OAuth client with the Search Console, Analytics Data and Analytics Admin APIs enabled, then `pnpm mcp-auth` — see [Google login](#google-login) | Free |
+| `PAGESPEED_API_KEY` | `pagespeed_insights`, `crux_history`, `site_vitals_by_traffic` | The PageSpeed Insights API **and** the Chrome UX Report API, on the key's project | Free, no billing account |
+| `GOOGLE_CLOUD_API_KEY` | `web_risk_check`, `page_entities` | The Web Risk API and/or the Cloud Natural Language API, on a project **with billing enabled** | Free tiers: 100,000 Web Risk lookups a month; 5,000 Natural Language units a month (a unit is 1,000 characters) |
+| `OPEN_PAGERANK_API_KEY` | `domain_authority` | An Open PageRank key, from [its dashboard](https://openpagerank.keywordseverywhere.com/dashboard) | Free plan: 30,000 domains a month |
+| `GOOGLE_KG_API_KEY` | `seo_geo_score`, `ai_visibility_score` (one check each) | The Knowledge Graph Search API | Free. Optional enrichment: without it that one check reports as not evaluated, and the Tool still runs |
+
+`wayback_history` and `brand_pageviews` read the Internet Archive and Wikimedia,
+which need no key at all.
+
+Put them in a `.env` file at the root of the server — copy
+[`.env.example`](./.env.example), which carries the same notes:
 
 ```bash
-PAGESPEED_API_KEY=your_key
+GOOGLE_CLIENT_ID=your_client_id
+GOOGLE_CLIENT_SECRET=your_client_secret
+PAGESPEED_API_KEY=your_free_key
+GOOGLE_CLOUD_API_KEY=your_billed_key
+OPEN_PAGERANK_API_KEY=your_opr_key
+GOOGLE_KG_API_KEY=your_kg_key
 ```
 
-Create the key at [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
-and enable the PageSpeed Insights API for its project — and the Chrome UX Report
-API as well, for `crux_history`. The free quota is 25,000
-requests a day and needs no billing account.
+Create the Google keys at [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
+`GOOGLE_CLOUD_API_KEY` is a separate variable from `PAGESPEED_API_KEY` on purpose:
+Web Risk and Cloud Natural Language refuse a project without billing even inside
+their free tiers, and the free key never has to sit on one. A key whose project
+has the API disabled, or has no billing account, gets an error naming exactly
+that and the console page that fixes it. [`docs/setup.md`](./docs/setup.md) walks
+through each.
 
-**Without it both Tools are still listed**, and each returns an error naming the variable
+**Without it each Tool is still listed**, and returns an error naming the variable
 and where to get a value. That is the rule for every Tool on this server, recorded
 in [ADR-0003](./docs/adr/0003-tools-fail-rather-than-degrade.md): a Tool that
 cannot do its whole job says what to configure and never returns a smaller result
@@ -260,7 +357,9 @@ they need the Operator's own OAuth client. Create one in
 APIs & Services > Credentials, choosing the application type **Desktop app** —
 that type is what permits the localhost redirect this login uses
 ([ADR-0002](./docs/adr/0002-google-login-via-local-cli.md)). Enable the Search
-Console API and the Google Analytics Data API for the same project.
+Console API, the Google Analytics Data API and the Google Analytics Admin API for
+the same project — the Admin API is what lists your properties and what
+`ga4_setup_audit` and `ga4_annotations` read.
 
 Put the two values in `.env` — `.env.example` lists every variable this server
 reads — and then log in:

@@ -2,7 +2,8 @@ import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
 import { toolText } from "../lib/tool-result";
-import { readReport, renderReport } from "../lib/google/ga4-report";
+import { readReport, renderReport, reportBasis } from "../lib/google/ga4-report";
+import { basisSection } from "../lib/render-basis";
 import { ga4Window, ga4WindowSchema } from "../lib/google/ga4-tool-shape";
 import type { GoogleReader } from "../lib/google/reader";
 
@@ -91,6 +92,7 @@ export async function handler(
   lines.push(`Rows: ${rowDimension} — Columns: ${columnDimension}`);
   lines.push("");
   lines.push(...renderReport(table));
+  lines.push(...basisSection(reportBasis(table)));
 
   return toolText(lines.join("\n"));
 }

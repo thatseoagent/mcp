@@ -2,6 +2,7 @@ import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
 import { refreshable } from "../lib/with-cache";
+import { notCheckedSection } from "../lib/render-basis";
 import { toolText } from "../lib/tool-result";
 import { resolveSiteUrl } from "../lib/google/property";
 import { inspectUrlOnce } from "../lib/google/inspection-cache";
@@ -194,14 +195,18 @@ export async function handler(
     }
   }
 
-  if (failed.length > 0) {
-    lines.push("");
-    lines.push(`=== NOT EVALUATED (${failed.length}) ===`);
-    lines.push("These are questions that did not get asked, not answers about the URLs.");
-    for (const outcome of failed) {
-      if (!outcome.ok) lines.push(`  ${outcome.url} — ${outcome.reason}`);
-    }
-  }
+  lines.push(
+    ...notCheckedSection(
+      failed.flatMap((outcome) => (outcome.ok ? [] : [{ subject: outcome.url, reason: outcome.reason }])),
+      {
+        noun: "URLs",
+        // Every URL asked about is listed with its answer above, so every one
+        // without an answer is listed here.
+        cap: failed.length,
+        note: "These are questions that did not get asked, not answers about the URLs.",
+      },
+    ),
+  );
 
   return toolText(lines.join("\n"));
 }

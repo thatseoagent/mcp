@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { connect } from "node:net";
-import { awaitConsent } from "@/lib/google/login-flow";
+import { awaitConsent, CALLBACK_PORT } from "@/lib/google/login-flow";
+import { HTTP_PORT } from "@/lib/server-address";
 
 /**
  * The consent round trip, driven the way a browser drives it.
@@ -27,19 +28,23 @@ function portOf(redirectUri: string): number {
 }
 
 describe("awaitConsent", () => {
-  it("publishes a loopback redirect URI on a port nobody chose in advance", async () => {
+  it("publishes the same loopback redirect URI on every login", async () => {
     const listener = await awaitConsent();
     try {
-      const url = new URL(listener.redirectUri);
-
-      expect(url.hostname).toBe("127.0.0.1");
-      expect(url.pathname).toBe("/callback");
-      // Ephemeral, unlike the MCP port: this one exists for seconds and is told
-      // to Google at the moment it is chosen, so it cannot collide with a running
-      // server or a second login.
-      expect(Number(url.port)).toBeGreaterThan(0);
+      expect(listener.redirectUri).toBe(`http://127.0.0.1:${CALLBACK_PORT}/callback`);
+      // Not the MCP port: the Operator usually logs in with the server running.
+      expect(CALLBACK_PORT).not.toBe(HTTP_PORT);
     } finally {
       listener.stop();
+    }
+  });
+
+  it("names the port when a second login finds it taken", async () => {
+    const first = await awaitConsent();
+    try {
+      await expect(awaitConsent()).rejects.toThrow(`Port ${CALLBACK_PORT} on 127.0.0.1 is already in use`);
+    } finally {
+      first.stop();
     }
   });
 

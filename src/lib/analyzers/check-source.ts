@@ -291,7 +291,7 @@ export const FRESHNESS_HEURISTIC: CheckSource = {
  * Access to a page by a named AI crawler.
  *
  * Not a heuristic and not a Google rule: it reports what a site's own robots.txt
- * says about GPTBot, ClaudeBot, PerplexityBot and Google-Extended. The fact is
+ * says about the crawlers AI search cites from (`ai-crawlers.ts`). The fact is
  * verifiable in the file, and what it means for citation is the operator's call,
  * so the check states the fact and stops.
  */

@@ -10,10 +10,21 @@
  * Reporting that as "no threads found" would be the confident lie
  * `wikidata-check.ts` describes, on the branch most often taken.
  */
-import { fetchThirdPartyApi } from "./http-client";
+import { callApi, UpstreamUnansweredError, type ThirdPartyService } from "./third-party-api";
+import { UpstreamApiError } from "./upstream-api-error";
 
-/** How long to wait on Reddit's search. */
-const LOOKUP_TIMEOUT = 8_000;
+const REDDIT = {
+  name: "Reddit's search API",
+  timeoutMs: 8_000,
+  // INFERRED. Reddit's Data API wiki gives OAuth clients 100 queries a minute
+  // and limits traffic without OAuth — which is what this is — well below that
+  // without a figure we could confirm
+  // (https://support.reddithelp.com/hc/en-us/articles/16160319875092-Reddit-Data-API-Wiki,
+  // which refused a scripted read on 2026-09-24). 10 a minute is the
+  // conservative reading; one search per brand is all a Tool asks, so it binds
+  // only a loop.
+  perMinute: 10,
+} satisfies ThirdPartyService;
 
 /** How many threads to ask for. Enough to answer "is anyone talking about this?". */
 const SAMPLE = 5;
@@ -38,19 +49,18 @@ export async function lookupReddit(brand: string): Promise<RedditMatch> {
   const url = `https://www.reddit.com/search/?q=${encodeURIComponent(brand)}`;
 
   try {
-    const query = new URLSearchParams({ q: brand, sort: "relevance", limit: String(SAMPLE) });
-    const res = await fetchThirdPartyApi(`https://www.reddit.com/search.json?${query}`, {
-      timeout: LOOKUP_TIMEOUT,
+    const { body } = await callApi(REDDIT, {
+      url: "https://www.reddit.com/search.json",
+      query: { q: brand, sort: "relevance", limit: String(SAMPLE) },
     });
-
-    if (!res.ok) {
-      return { found: null, reason: `Reddit answered HTTP ${res.status}`, url };
-    }
-
-    const data = (await res.json()) as { data?: { children?: unknown[] } };
+    const data = body as { data?: { children?: unknown[] } };
     const threads = data.data?.children?.length ?? 0;
     return threads > 0 ? { found: true, threads, url } : { found: false, url };
-  } catch {
+  } catch (error) {
+    if (error instanceof UpstreamApiError && !(error instanceof UpstreamUnansweredError)) {
+      return { found: null, reason: `Reddit answered HTTP ${error.status}`, url };
+    }
+    // A timeout, or a 200 that was not JSON — Reddit's block page is HTML.
     return { found: null, reason: "the request to Reddit failed or timed out", url };
   }
 }

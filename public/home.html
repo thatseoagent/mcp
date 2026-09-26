@@ -130,6 +130,7 @@
   p:last-child { margin-bottom: 0; }
 
   .split { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .split.three { grid-template-columns: 1fr 1fr 1fr; }
 
   code, pre { font-family: var(--mono); font-size: 13px; }
   code { background: var(--raised); padding: 2px 5px; color: var(--display); }
@@ -171,7 +172,7 @@
     .hero .lead { padding: 40px 0; }
     .hero .rail { border-left: 0; border-top: 1px solid var(--rule); }
     .readout { padding-left: 0; }
-    .split { grid-template-columns: 1fr; }
+    .split, .split.three { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -203,7 +204,7 @@
     <div class="rail">
       <div class="readout">
         <span class="label">Tools</span>
-        <span class="stat">55</span>
+        <span class="stat">75</span>
         <span class="note">SEO analysis capabilities</span>
       </div>
       <div class="readout">
@@ -220,23 +221,36 @@
   </div>
 
   <section>
-    <span class="label">Two halves</span>
-    <h2>What works right now, and what needs a login</h2>
-    <div class="split">
+    <span class="label">What each Tool needs</span>
+    <h2>What works right now, what needs a key, and what needs a login</h2>
+    <div class="split three">
       <div class="cell">
         <h3>No credentials at all</h3>
         <p>
-          Everything named <code>seo_*</code>, plus <code>crawl_site</code>. These read a
-          site's public surface and work on any domain, including ones you do not own.
-          They need no account, no key and no database.
+          Everything named <code>seo_*</code>, plus <code>crawl_site</code>,
+          <code>entity_mentions</code>, <code>ai_visibility_score</code>,
+          <code>wayback_history</code> and <code>brand_pageviews</code>. These read a
+          site's public surface, the Internet Archive and Wikimedia, and work on any
+          domain, including ones you do not own.
+        </p>
+      </div>
+      <div class="cell">
+        <h3>A key in <code>.env</code></h3>
+        <p>
+          <code>pagespeed_insights</code> and <code>crux_history</code> take a free
+          <code>PAGESPEED_API_KEY</code>; <code>web_risk_check</code> and
+          <code>page_entities</code> a <code>GOOGLE_CLOUD_API_KEY</code> on a project with
+          billing; <code>domain_authority</code> an <code>OPEN_PAGERANK_API_KEY</code>.
+          Without one, the Tool says which variable to set.
         </p>
       </div>
       <div class="cell">
         <h3>Your own Google data</h3>
         <p>
-          <code>gsc_*</code>, <code>ga4_*</code> and <code>run_site_audit</code> read your
-          Search Console and Analytics through an OAuth client you create. Until you log
-          in they stay listed and say so, rather than disappearing.
+          <code>gsc_*</code>, <code>ga4_*</code>, <code>run_site_audit</code> and the
+          <code>site_*</code> Tools, which cross that data with the site's own pages, read
+          your Search Console and Analytics through an OAuth client you create. Until you
+          log in they stay listed and say so, rather than disappearing.
         </p>
       </div>
     </div>

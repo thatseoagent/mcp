@@ -18,6 +18,15 @@
  * without throwing, so nine modules assembled the pair by hand and two of them
  * left the guards out.
  *
+ * A fixed third-party API — Wikipedia, CrUX, the Wayback CDX server — is not
+ * fetched from here. It is exempt from the robots gate on purpose, and a
+ * fetcher in this module would have been one import away from every caller that
+ * wanted a response without the robots check. `third-party-api.ts` makes those
+ * requests with the SSRF guard but without robots.txt, and without this
+ * module's pace either: an API has published its own per-minute ceiling, and
+ * that module holds each one to it. It owns the key, the timeout and the
+ * reading of the answer along with them.
+ *
  * Web Bot Auth request signing is the one thing from the retired implementation
  * that is genuinely absent. It signed requests with a key registered to a domain
  * that is shutting down, and an Operator running their own instance has no such
@@ -150,54 +159,6 @@ export async function fetchAnyStatus(
     },
     { onHop: (hop: string) => clearToFetch(hop, userAgent) },
   );
-}
-
-/**
- * A read of a fixed third-party API: Wikipedia, Wikidata, Reddit, the Knowledge
- * Graph.
- *
- * ── Why this is not {@link fetchAnyStatus} ──
- *
- * `robots-gate.ts` names these as one of its two deliberate exemptions: "APIs
- * with their own terms, reached at a known endpoint, and they are not what a site
- * owner is addressing when they write a rule about our crawler." Asking
- * `wikipedia.org/robots.txt` whether we may call Wikipedia's REST API is asking
- * the wrong party the wrong question.
- *
- * The exemption lives here, in a named function, rather than in five call sites
- * that reach for the global `fetch` and are exempt by omission. Which is what
- * they were: `wikipedia`, `reddit`, `wikidata` and `knowledge-graph` all called
- * `fetch` directly, so nothing distinguished "exempt on purpose" from "forgot".
- *
- * ── What it does apply ──
- *
- * **The pace.** These are real connections to somebody else's server, and the
- * argument `robots-gate.ts` makes for pacing robots.txt applies unchanged: the
- * recursion argument "says nothing about the request being free, and it is not".
- * Wikipedia's API policy asks for restraint by name, and `entity-mentions`
- * already observes in a comment that Reddit "rate-limits unauthenticated search
- * hard, so this is the branch most likely to fire in a real run" — which is a
- * good reason to be the client that paces itself.
- *
- * **The fetch scope.** `with-cache.ts` promises that `force_refresh` reaches "all
- * the way down" past the in-process caches. These five participated in nothing,
- * so for them the promise was vacuously true rather than kept.
- *
- * The SSRF guard is beside the point and applied anyway, for free: the host is a
- * constant in our own source, and what varies is a brand name inside a query
- * string. `http-client`'s rule — nothing else may call `fetch` on an
- * Operator-supplied URL — was never about these.
- */
-export async function fetchThirdPartyApi(
-  url: string,
-  options: { timeout?: number; headers?: Record<string, string> } = {},
-): Promise<Response> {
-  await paceRequestTo(url);
-  const { response } = await safeFetch(url, {
-    signal: AbortSignal.timeout(options.timeout ?? DEFAULT_TIMEOUT),
-    headers: { "User-Agent": PAGE_AUDIT_USER_AGENT, ...options.headers },
-  });
-  return response;
 }
 
 /**

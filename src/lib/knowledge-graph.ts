@@ -35,8 +35,33 @@
  * record with a `reason`, so a Knowledge Graph outage reached the reader as a
  * generic sentence where the specific one existed. Same question, same shape now.
  */
-import { readOptionalConfig } from "./required-config";
-import { fetchThirdPartyApi } from "./http-client";
+import { readOptionalConfig, type ConfigRequirement } from "./required-config";
+import { callApi, DEFAULT_PER_MINUTE, UpstreamUnansweredError, type ThirdPartyService } from "./third-party-api";
+import { UpstreamApiError } from "./upstream-api-error";
+
+/**
+ * Stated for `callApi`, which requires every key it places. It is never the
+ * sentence an Operator reads: the key is an enrichment (see `required-config.ts`),
+ * so its absence is answered as "not checked" below before `callApi` is reached,
+ * and by then the requirement is met.
+ */
+const KG_KEY_REQUIREMENT: ConfigRequirement = {
+  variable: "GOOGLE_KG_API_KEY",
+  purpose: "ask Google's Knowledge Graph Search API whether it holds an entity for the brand",
+  howToGet:
+    "Create an API key at https://console.cloud.google.com/apis/credentials and enable the " +
+    "Knowledge Graph Search API for its project.",
+};
+
+const KNOWLEDGE_GRAPH = {
+  name: "Google's Knowledge Graph Search API",
+  key: { requirement: KG_KEY_REQUIREMENT, in: "query", param: "key" },
+  timeoutMs: 8_000,
+  // Google publishes no per-minute figure for this API
+  // (https://developers.google.com/knowledge-graph, read 2026-09-24), so the
+  // default ceiling applies: one lookup per brand is all any Tool asks for.
+  perMinute: DEFAULT_PER_MINUTE,
+} satisfies ThirdPartyService;
 
 export type KnowledgeGraphMatch = {
   /** `null` when we did not find out. Never a stand-in for "no". */
@@ -46,22 +71,23 @@ export type KnowledgeGraphMatch = {
 };
 
 export async function lookupKnowledgeGraph(brandName: string): Promise<KnowledgeGraphMatch> {
-  const key = readOptionalConfig("GOOGLE_KG_API_KEY");
   // Our deployment, not their site. `null` says we did not find out, which is the
   // truth, and the reason says whose problem it is.
-  if (!key) return { found: null, reason: "the Knowledge Graph API is not configured on this deployment" };
+  if (!readOptionalConfig(KG_KEY_REQUIREMENT.variable)) return { found: null, reason: "the Knowledge Graph API is not configured on this deployment" };
 
   try {
-    const qs = new URLSearchParams({ query: brandName, key, limit: "1" });
-    // Paced and scoped like the other fixed-API reads. See `fetchThirdPartyApi`.
-    const res = await fetchThirdPartyApi(
-      `https://kgsearch.googleapis.com/v1/entities:search?${qs}`,
-      { timeout: 8_000 },
-    );
-    if (!res.ok) return { found: null, reason: `the Knowledge Graph API returned HTTP ${res.status}` };
-    const data = (await res.json()) as { itemListElement?: unknown[] };
+    const { body } = await callApi(KNOWLEDGE_GRAPH, {
+      url: "https://kgsearch.googleapis.com/v1/entities:search",
+      query: { query: brandName, limit: "1" },
+    });
+    const data = body as { itemListElement?: unknown[] };
     return { found: (data.itemListElement?.length ?? 0) > 0 };
-  } catch {
+  } catch (error) {
+    // A refusal names its status. A timeout, an unreadable answer or a network
+    // failure has no status worth naming, and all three are "did not respond".
+    if (error instanceof UpstreamApiError && !(error instanceof UpstreamUnansweredError)) {
+      return { found: null, reason: `the Knowledge Graph API returned HTTP ${error.status}` };
+    }
     return { found: null, reason: "the Knowledge Graph API did not respond" };
   }
 }

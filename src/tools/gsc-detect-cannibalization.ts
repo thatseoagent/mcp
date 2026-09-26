@@ -40,7 +40,6 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
   const { rows, header, footer } = await fetchRows(google.searchConsole, args, {
     // Both dimensions, which is what makes the pairing possible at all.
     dimensions: ["query", "page"],
-    rowLimit: 10_000,
     title: "QUERIES WITH MORE THAN ONE PAGE",
   });
 

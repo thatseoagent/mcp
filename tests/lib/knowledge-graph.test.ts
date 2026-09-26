@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { lookupKnowledgeGraph } from "@/lib/knowledge-graph";
-import { restoreFetch } from "../helpers/serve";
+import { requestsOf, restoreFetch, serve, type FetchMock } from "../helpers/serve";
 
 /**
  * The Knowledge Graph lookup's three states.
@@ -20,13 +20,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function answer(body: unknown, status = 200): ReturnType<typeof vi.fn> {
-  const mock = vi.fn(
-    async () =>
-      new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }),
-  );
-  vi.stubGlobal("fetch", mock);
-  return mock;
+function answer(body: unknown, status = 200): FetchMock {
+  return serve({
+    "kgsearch.googleapis.com": {
+      status,
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+    },
+  });
 }
 
 describe("what it answers", () => {
@@ -70,7 +71,11 @@ describe("what it answers", () => {
 
   it("says it does not know when the request throws", async () => {
     process.env[KEY] = "test-key";
-    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("socket hang up"); }));
+    serve({
+      "kgsearch.googleapis.com": () => {
+        throw new Error("socket hang up");
+      },
+    });
 
     const result = await lookupKnowledgeGraph("Example Ltd");
 
@@ -88,10 +93,10 @@ describe("what it sends", () => {
 
     await lookupKnowledgeGraph("Example Ltd");
 
-    const url = new URL(String(mock.mock.calls[0][0]));
-    expect(url.origin + url.pathname).toBe("https://kgsearch.googleapis.com/v1/entities:search");
-    expect(url.searchParams.get("query")).toBe("Example Ltd");
-    expect(url.searchParams.get("limit")).toBe("1");
-    expect(url.searchParams.get("key")).toBe("test-key");
+    const [asked] = requestsOf(mock);
+    expect(asked?.url.split("?")[0]).toBe("https://kgsearch.googleapis.com/v1/entities:search");
+    expect(asked?.searchParams.get("query")).toBe("Example Ltd");
+    expect(asked?.searchParams.get("limit")).toBe("1");
+    expect(asked?.searchParams.get("key")).toBe("test-key");
   });
 });

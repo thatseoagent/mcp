@@ -2,6 +2,7 @@ import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
 import { refreshable } from "../lib/with-cache";
+import { notCheckedSection } from "../lib/render-basis";
 import { toolText } from "../lib/tool-result";
 import { resolveWindow } from "../lib/google/gsc-dates";
 import { UpstreamApiError } from "../lib/upstream-api-error";
@@ -162,14 +163,19 @@ export async function handler({ days }: InferSchema<typeof schema>, google: Goog
     for (const result of unverified) lines.push(`  ${result.property.siteUrl}`);
   }
 
-  if (unreadable.length > 0) {
-    lines.push("");
-    lines.push(`=== NOT EVALUATED (${unreadable.length}) ===`);
-    lines.push("Questions that did not get asked, not answers about these properties.");
-    for (const result of unreadable) {
-      if (result.state === "unreadable") lines.push(`  ${result.property.siteUrl} — ${result.reason}`);
-    }
-  }
+  lines.push(
+    ...notCheckedSection(
+      unreadable.flatMap((result) =>
+        result.state === "unreadable" ? [{ subject: result.property.siteUrl, reason: result.reason }] : [],
+      ),
+      {
+        noun: "properties",
+        // An Operator holding thirty properties wants every one it could not read named.
+        cap: results.length,
+        note: "Questions that did not get asked, not answers about these properties.",
+      },
+    ),
+  );
 
   return toolText(lines.join("\n"));
 }

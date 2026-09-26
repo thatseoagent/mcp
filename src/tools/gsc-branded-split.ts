@@ -22,8 +22,10 @@ export const metadata: ToolMetadata = {
   description:
     "Split search performance into people looking for you by name and people who found " +
     "you some other way. The unbranded half is what SEO actually moved; the branded " +
-    "half mostly follows what marketing did elsewhere. Needs the Google login; without " +
-    "it this Tool says so.",
+    "half mostly follows what marketing did elsewhere. The split is this server's " +
+    "approximation from the brand terms given, not Google's classification: Search Console's " +
+    "own branded-queries filter is not available through its API. Needs the Google login; " +
+    "without it this Tool says so.",
   annotations: {
     title: "Split branded from unbranded search",
     readOnlyHint: true,
@@ -35,6 +37,20 @@ export const metadata: ToolMetadata = {
 
 /** Completes the sentence "Could not …" for every failure this Tool can return. */
 const FAILURE_CONTEXT = "split this site's branded and unbranded search performance";
+
+/**
+ * Why this is not Google's split.
+ *
+ * Search Console added a branded-queries filter in November 2025, classified by
+ * Google with AI assistance — and it is in the interface only. The API has no
+ * such field, so what this Tool reports is word matching against the terms the
+ * caller gave, and the two can disagree on any query that mentions a product
+ * but not the company, or the company in a way the terms do not spell.
+ */
+const BRANDED_FILTER_NOTE =
+  "Method: this server's approximation, matching the brand terms given. It is not Google's " +
+  "classification — Search Console's branded-queries filter (November 2025) is not available " +
+  "through the API, so its numbers can differ from these.";
 
 function share(part: number, whole: number): string {
   return whole > 0 ? `${((part / whole) * 100).toFixed(1)}%` : "n/a";
@@ -48,6 +64,10 @@ export async function handler(args: InferSchema<typeof schema>, google: GoogleRe
 
   const terms = (args.brandTerms ?? []).filter((term) => term.trim().length > 0);
   const lines = [...header];
+  // Said on every answer, because Search Console's own interface now has a
+  // branded filter and a reader who has seen it will assume this is that.
+  lines.push("");
+  lines.push(BRANDED_FILTER_NOTE);
 
   if (terms.length === 0) {
     lines.push("");

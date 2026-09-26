@@ -112,6 +112,74 @@ describe("run_page_audit", () => {
     expect(text).toContain("Nothing measured here changed since then");
   });
 
+  it("lists the checks it could not run, and stores them with the report", async () => {
+    // A page whose copy a browser assembles: the content rules cannot be asked of
+    // it. This Tool printed its issues without saying so, and a JavaScript shell
+    // was stored as a clean page.
+    temp = useTempDatabase();
+    serve({
+      "example.com/robots.txt": { status: 404, body: "" },
+      "https://example.com/pricing": {
+        headers: { "content-type": "text/html" },
+        body: '<html><head><title>App</title></head><body><div id="root"></div></body></html>',
+      },
+    });
+
+    const text = textOf(await audit());
+
+    expect(text).toMatch(/=== NOT CHECKED \(\d+\) ===/);
+    expect(text).toContain("rendered by JavaScript");
+    const site = findSite("example.com")!;
+    expect(findPageAudit(site.id, "https://example.com/pricing")!.contextJson).toContain("=== NOT CHECKED");
+  });
+
+  it("says headers it could not read were not checked, and does not report that as a change", async () => {
+    temp = useTempDatabase();
+    servePage("Pricing");
+    await audit();
+
+    // The page still answers; the header read (a HEAD request) does not reach it.
+    // A status would not do: the headers are read off any response, 500 included.
+    const page = '<html><head><title>Pricing</title><meta name="description" content="A page">' +
+      '<link rel="canonical" href="https://example.com/pricing"></head>' +
+      '<body><h1>Pricing</h1><p>Some words about the price of things.</p><a href="/about">About</a></body></html>';
+    serve({
+      "example.com/robots.txt": { status: 404, body: "" },
+      "https://example.com/pricing": (request) =>
+        {
+          if (request.method === "HEAD") throw new TypeError("fetch failed");
+          return { headers: { "content-type": "text/html" }, body: page };
+        },
+    });
+    const { resetAllSingleFlightCaches } = await import("@/lib/single-flight");
+    resetAllSingleFlightCaches();
+
+    const text = textOf(await audit());
+
+    expect(text).toContain("Security headers — they could not be read on this run");
+    expect(text).not.toMatch(/Security headers: was/);
+    expect(text).toContain("Not compared, because this run did not measure it: Security headers.");
+  });
+
+  it("does not read an older report's unread header check as a grade that changed", async () => {
+    temp = useTempDatabase();
+    servePage("Pricing");
+    await audit();
+    // A report stored before unread checks were listed apart wrote this as a value.
+    const site = findSite("example.com")!;
+    const stored = findPageAudit(site.id, "https://example.com/pricing")!;
+    const { savePageAudit } = await import("@/lib/page-audits");
+    savePageAudit(
+      site.id,
+      "https://example.com/pricing",
+      stored.contextJson!.replace(/^Security headers: .*$/m, "Security headers: could not be read on this run."),
+    );
+
+    const text = textOf(await audit());
+
+    expect(text).not.toMatch(/Security headers: was/);
+  });
+
   it("replaces the row rather than accumulating one per run", async () => {
     temp = useTempDatabase();
     servePage("Pricing");

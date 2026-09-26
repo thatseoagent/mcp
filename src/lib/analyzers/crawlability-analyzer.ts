@@ -8,6 +8,7 @@ import { fetchWithoutRedirect, fetchWithTimeout, validateUrl } from "../http-cli
 import { parseRobots } from "./robots-ruleset";
 import { type Result, success, failure } from "../type-guards";
 import { annotate, GOOGLE_SAYS, type CheckSource } from "./check-source";
+import { urlKey } from "../url-match";
 
 /**
  * Long redirect chains are our concern, not Google's stated one. Google
@@ -142,11 +143,15 @@ function analyzeCanonical(
   // Detect conflicts
   const conflicts: CanonicalConflict[] = [];
 
-  // Conflict: HTML and HTTP canonical differ
+  // Conflict: HTML and HTTP canonical differ. Compared by `url-match.ts`'s key
+  // with the scheme and host as written, because two declarations naming
+  // `http://` and `https://`, or `www.` and the bare host, are two canonicals to
+  // Google. Relative hrefs are resolved against the page first, as Google does;
+  // that they are relative is its own finding below.
   if (
     htmlCanonical &&
     httpCanonical &&
-    normalizeUrl(htmlCanonical) !== normalizeUrl(httpCanonical)
+    !sameDeclaredUrl(htmlCanonical, httpCanonical, currentUrl)
   ) {
     conflicts.push({
       type: "html_vs_http",
@@ -484,19 +489,8 @@ function detectCrawlabilityIssues(data: {
   return issues;
 }
 
-/**
- * Normalize URL for comparison (remove trailing slash, fragments, etc.).
- */
-function normalizeUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    // Remove trailing slash, fragment, and normalize to lowercase
-    let normalized = parsed.origin + parsed.pathname.replace(/\/$/, "");
-    if (parsed.search) {
-      normalized += parsed.search;
-    }
-    return normalized.toLowerCase();
-  } catch {
-    return url.toLowerCase();
-  }
+/** Two declared URLs name the same page, scheme and host included. Unparseable ones compare as written. */
+function sameDeclaredUrl(a: string, b: string, base: string): boolean {
+  const exact = { origin: "exact" } as const;
+  return (urlKey(a, base, exact) ?? a) === (urlKey(b, base, exact) ?? b);
 }

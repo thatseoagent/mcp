@@ -1,25 +1,19 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { lookupWikidata } from "@/lib/wikidata-check";
+import { requestsOf, serve, type FetchMock } from "../helpers/serve";
 
-type FetchInput = Parameters<typeof fetch>[0];
-type FetchInit = Parameters<typeof fetch>[1];
-
-function mockFetch(status: number, body: object | string, rejects = false) {
-  return vi.fn(async (_input: FetchInput, _init?: FetchInit): Promise<Response> => {
-    if (rejects) throw new Error("Network error");
-    const bodyStr = typeof body === "string" ? body : JSON.stringify(body);
-    return new Response(bodyStr, { status });
-  }) as unknown as typeof fetch;
+/** Wikidata's search endpoint answering `body` with `status`. */
+function answer(status: number, body: object | string): FetchMock {
+  return serve({
+    "www.wikidata.org/w/api.php": { status, body: typeof body === "string" ? body : JSON.stringify(body) },
+  });
 }
 
 describe("lookupWikidata", () => {
-  let originalFetch: typeof fetch;
-
-  beforeEach(() => { originalFetch = globalThis.fetch; });
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => { vi.unstubAllGlobals(); });
 
   it("returns found:true with id, label, description when a matching entity exists", async () => {
-    globalThis.fetch = mockFetch(200, {
+    answer(200, {
       search: [{ label: "Acme Corp", id: "Q12345", description: "A widget maker" }],
     });
 
@@ -32,7 +26,7 @@ describe("lookupWikidata", () => {
   });
 
   it("returns found:false when search returns no results", async () => {
-    globalThis.fetch = mockFetch(200, { search: [] });
+    answer(200, { search: [] });
 
     const result = await lookupWikidata("UnknownBrandXYZ");
 
@@ -41,7 +35,7 @@ describe("lookupWikidata", () => {
   });
 
   it("returns found:false when search returns entries that do not match the brand", async () => {
-    globalThis.fetch = mockFetch(200, {
+    answer(200, {
       search: [{ label: "Completely Different Thing", id: "Q99999" }],
     });
 
@@ -59,7 +53,7 @@ describe("lookupWikidata", () => {
    * for our own network trouble (#337).
    */
   it("returns found:null when the API returns a non-200 status, not found:false", async () => {
-    globalThis.fetch = mockFetch(503, "Service Unavailable");
+    answer(503, "Service Unavailable");
 
     const result = await lookupWikidata("Acme Corp");
 
@@ -68,7 +62,11 @@ describe("lookupWikidata", () => {
   });
 
   it("returns found:null when the fetch rejects (network error)", async () => {
-    globalThis.fetch = mockFetch(0, "", true);
+    serve({
+      "www.wikidata.org/w/api.php": () => {
+        throw new Error("Network error");
+      },
+    });
 
     const result = await lookupWikidata("Acme Corp");
 
@@ -78,7 +76,7 @@ describe("lookupWikidata", () => {
 
   it("still returns found:false when the search answers and matches nothing", async () => {
     // The distinction only earns its keep if a real negative stays a negative.
-    globalThis.fetch = mockFetch(200, JSON.stringify({ search: [] }));
+    answer(200, JSON.stringify({ search: [] }));
 
     const result = await lookupWikidata("Acme Corp");
 
@@ -90,13 +88,12 @@ describe("lookupWikidata", () => {
     // `wbsearchentities` searches one language's labels at a time. Asking in English
     // unconditionally made an item labelled only in Spanish invisible, so the report
     // told a company that has a Wikidata item to go and create one (#342).
-    const spy = mockFetch(200, { search: [] });
-    globalThis.fetch = spy;
+    const mock = answer(200, { search: [] });
 
     await lookupWikidata("El País", "es");
-    expect(String((spy as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0])).toContain("language=es");
+    expect(requestsOf(mock)[0]?.searchParams.get("language")).toBe("es");
 
     await lookupWikidata("Acme Corp");
-    expect(String((spy as unknown as { mock: { calls: unknown[][] } }).mock.calls[1][0])).toContain("language=en");
+    expect(requestsOf(mock)[1]?.searchParams.get("language")).toBe("en");
   });
 });

@@ -3,7 +3,8 @@ import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
 import { ga4Property, ga4PropertySchema } from "../lib/google/ga4-tool-shape";
 import { toolText } from "../lib/tool-result";
-import { readReport, renderReport } from "../lib/google/ga4-report";
+import { readReport, renderReport, reportBasis } from "../lib/google/ga4-report";
+import { basisSection } from "../lib/render-basis";
 import type { GoogleReader } from "../lib/google/reader";
 
 export const schema = {
@@ -62,11 +63,16 @@ export async function handler(
   lines.push("");
   lines.push(...renderReport(table));
 
-  lines.push("");
-  lines.push("=== NOTE ===");
-  lines.push("Realtime is a separate dataset with its own, much smaller, set of dimensions and");
-  lines.push("metrics. Its numbers will not add up to the reporting API's for the same period,");
-  lines.push("and that is expected rather than a discrepancy to chase.");
+  lines.push(
+    ...basisSection(reportBasis(table), {
+      read: [],
+      limits: [
+        "Realtime is a separate dataset with its own, much smaller, set of dimensions and",
+        "metrics. Its numbers will not add up to the reporting API's for the same period,",
+        "and that is expected rather than a discrepancy to chase.",
+      ],
+    }),
+  );
 
   return toolText(lines.join("\n"));
 }

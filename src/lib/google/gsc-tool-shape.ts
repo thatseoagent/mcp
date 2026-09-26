@@ -11,7 +11,8 @@ import { z } from "zod";
 import { refreshable } from "../with-cache";
 import { withPropertyFallback } from "./property";
 import { resolveWindow } from "./gsc-dates";
-import type { SearchAnalyticsRow, SearchConsoleReader } from "./reader";
+import { basisSection, type Basis } from "../render-basis";
+import type { SearchAnalyticsQuery, SearchAnalyticsRow, SearchConsoleReader } from "./reader";
 
 /** The arguments every analysis Tool takes, described once. */
 export const gscWindowSchema = {
@@ -45,7 +46,17 @@ export interface FetchedRows {
   /** The header lines every analysis Tool opens with. */
   header: string[];
   /**
-   * The caveat lines every analysis Tool closes with.
+   * What these rows are, as a part of the basis section: how many were read,
+   * whether that was the whole answer, and what Search Console never reports.
+   *
+   * A part rather than finished lines because most Tools read more than rows —
+   * a sample drawn from them, a sitemap, a GA4 report — and the section is one
+   * section however many reads fed it: `basisSection(fetched.basis, sample)`.
+   * A Tool that read nothing else prints {@link footer}.
+   */
+  basis: Basis;
+  /**
+   * The basis section for a Tool whose answer rests on these rows alone.
    *
    * Symmetric with `header`, and it was not. `whatTheseRowsAre(rows.length, limit)`
    * had to be handed the row limit **a second time** to decide whether to warn
@@ -59,18 +70,28 @@ export interface FetchedRows {
    * the restatement was avoidable.
    */
   footer: string[];
+  /**
+   * What Google said about how complete the rows are, when the read asked for
+   * fresh data. Absent on a `final` read, where there is nothing to say: every
+   * day in it is finished. See {@link ReadOptions.dataState}.
+   */
+  firstIncompleteDate?: string;
+  firstIncompleteHour?: string;
 }
 
 /**
- * The page size these Tools ask for when they do not say.
+ * How many rows these Tools ask for when they do not say.
  *
- * Google's own ceiling for one Search Analytics request is 25,000 rows. That was
- * an exported `MAX_ROWS` with no callers — a fact worth knowing, stated as an
- * interface nobody used, so it is stated here instead.
+ * 50,000 because that is the most Google will ever return: it keeps at most
+ * 50,000 rows per day per search type, whatever the request asks for. The reader
+ * pages past Google's 25,000-row request ceiling, and stops at the first short
+ * page, so a small property still costs one request.
  *
  * High because they analyse rather than list: a truncated read silently drops
  * the queries below the cut, and a "no cannibalization found" built on the top
- * 25 rows is a false all-clear rather than a short answer.
+ * slice of the rows is a false all-clear rather than a short answer. It was
+ * 5,000 while the reader could not page, which on a large property was that
+ * all-clear with a footer to say so.
  *
  * One constant rather than a `?? 5_000` in each function that needs it. It was
  * written four times — the default here, the default in `whatTheseRowsAre`, and
@@ -78,20 +99,68 @@ export interface FetchedRows {
  * places for the number that decides "is this read complete?" to disagree with
  * the number that asks the question.
  */
-const DEFAULT_ROW_LIMIT = 5_000;
+export const DEFAULT_ROW_LIMIT = 50_000;
 
 /** What a read of Search Console asks for, apart from which property and when. */
 interface ReadOptions {
   dimensions?: string[];
   rowLimit?: number;
   type?: string;
+  /**
+   * Narrow the read to one page, one query, and so on, in Google's own shape.
+   *
+   * Passed through rather than modelled: Google's filter groups are already the
+   * smallest honest description of "only this page", and a second vocabulary
+   * for them would be one more thing to translate wrongly.
+   */
+  dimensionFilterGroups?: SearchAnalyticsQuery["dimensionFilterGroups"];
+  /**
+   * Ask for data Google is still collecting.
+   *
+   * Absent means Google's default, `final`, and the read goes through
+   * `searchAnalytics` exactly as it always did. Set, the read goes through
+   * `searchAnalyticsWithMetadata` instead, because a read of partial data that
+   * dropped Google's statement of *which* data is partial would hand a Tool a
+   * number that is still rising with nothing to say so.
+   */
+  dataState?: SearchAnalyticsQuery["dataState"];
+}
+
+/** One read, through whichever method returns what the options need. */
+async function read(
+  reader: SearchConsoleReader,
+  query: SearchAnalyticsQuery,
+): Promise<{ rows: SearchAnalyticsRow[]; firstIncompleteDate?: string; firstIncompleteHour?: string }> {
+  if (!query.dataState) return { rows: await reader.searchAnalytics(query) };
+  return reader.searchAnalyticsWithMetadata(query);
+}
+
+/** The request, from the property, the window and the options. Written once for both reads. */
+function queryFor(
+  siteUrl: string,
+  window: { startDate: string; endDate: string },
+  options: ReadOptions,
+  limit: number,
+): SearchAnalyticsQuery {
+  return {
+    siteUrl,
+    startDate: window.startDate,
+    endDate: window.endDate,
+    dimensions: options.dimensions,
+    type: options.type,
+    rowLimit: limit,
+    // Only when asked for, so a read that did not ask sends exactly the request
+    // it sent before these existed.
+    ...(options.dimensionFilterGroups ? { dimensionFilterGroups: options.dimensionFilterGroups } : {}),
+    ...(options.dataState ? { dataState: options.dataState } : {}),
+  };
 }
 
 /**
  * Resolve the property, resolve the window, and read the rows.
  *
- * Returns the header *and* the footer, so a Tool never restates what it asked
- * for. See {@link FetchedRows.footer}.
+ * Returns the header *and* the basis, so a Tool never restates what it asked
+ * for. See {@link FetchedRows.basis}.
  */
 export async function fetchRows(
   reader: SearchConsoleReader,
@@ -101,20 +170,12 @@ export async function fetchRows(
   const window = resolveWindow(args);
   const limit = options.rowLimit ?? DEFAULT_ROW_LIMIT;
 
-  const { result: rows, siteUrl: property } = await withPropertyFallback(
-    reader,
-    args.siteUrl,
-    (resolved) =>
-      reader.searchAnalytics({
-        siteUrl: resolved,
-        startDate: window.startDate,
-        endDate: window.endDate,
-        dimensions: options.dimensions,
-        type: options.type,
-        rowLimit: limit,
-      }),
+  const { result, siteUrl: property } = await withPropertyFallback(reader, args.siteUrl, (resolved) =>
+    read(reader, queryFor(resolved, window, options, limit)),
   );
+  const { rows } = result;
 
+  const basis = whatTheseRowsAre(rows.length, limit);
   const header = [`=== ${options.title} ===`];
   header.push(`Property: ${property}`);
   header.push(`Window: ${window.startDate} to ${window.endDate}`);
@@ -130,7 +191,10 @@ export async function fetchRows(
     endDate: window.endDate,
     rows,
     header,
-    footer: whatTheseRowsAre(rows.length, limit),
+    basis,
+    footer: basisSection(basis),
+    ...(result.firstIncompleteDate ? { firstIncompleteDate: result.firstIncompleteDate } : {}),
+    ...(result.firstIncompleteHour ? { firstIncompleteHour: result.firstIncompleteHour } : {}),
   };
 }
 
@@ -153,16 +217,9 @@ export async function readAgain(
 ): Promise<SearchAnalyticsRow[]> {
   const window = options.window ?? fetched;
   const { result } = await withPropertyFallback(reader, fetched.property, (resolved) =>
-    reader.searchAnalytics({
-      siteUrl: resolved,
-      startDate: window.startDate,
-      endDate: window.endDate,
-      dimensions: options.dimensions,
-      type: options.type,
-      rowLimit: options.rowLimit ?? DEFAULT_ROW_LIMIT,
-    }),
+    read(reader, queryFor(resolved, window, options, options.rowLimit ?? DEFAULT_ROW_LIMIT)),
   );
-  return result;
+  return result.rows;
 }
 
 /** A window read for comparison, and the line that says which window it was. */
@@ -213,37 +270,38 @@ export function precedingWindow(startDate: string, endDate: string): { startDate
 }
 
 /**
- * The sentence every analysis Tool ends with.
+ * What every analysis Tool's answer rests on, as far as Search Console goes.
  *
  * Search Console shows what it shows: it withholds queries it considers
  * personal, it samples, and it lags. A finding is therefore about the rows, and
  * an *absence* of findings is about the rows too — which is the half a reader
  * will otherwise take as a clean bill of health.
  *
+ * The truncation sentence is `read`, not a caveat, because it is about this
+ * read and begins "That is": it has to follow the row count it refers to, which
+ * the caveats, printed after every part's `read`, would not.
+ *
  * Private. It used to be exported and called at 19 sites, each of which had to
  * repeat the row limit it had already given `fetchRows`. Callers read
- * {@link FetchedRows.footer} instead, where the limit is the one this read
+ * {@link FetchedRows.basis} instead, where the limit is the one this read
  * actually used rather than the one a second argument claimed.
  */
-function whatTheseRowsAre(rowCount: number, limit: number): string[] {
-  const lines = [
-    "",
-    "=== WHAT THIS IS BASED ON ===",
-    `${rowCount} row(s) from Search Console for this window.`,
-  ];
+function whatTheseRowsAre(rowCount: number, limit: number): Basis {
+  const read = [`${rowCount} row(s) from Search Console for this window.`];
 
   if (rowCount >= limit) {
-    lines.push(
+    read.push(
       `That is the full page asked for, so there are almost certainly more rows and this ` +
         `analysis has not seen them. Narrow the window or raise the limit.`,
     );
   }
 
-  lines.push(
-    "Search Console withholds queries it considers personal and does not report every " +
-      "impression, so an absence here is an absence in these rows rather than a fact about " +
-      "the site.",
-  );
-
-  return lines;
+  return {
+    read,
+    limits: [
+      "Search Console withholds queries it considers personal and does not report every " +
+        "impression, so an absence here is an absence in these rows rather than a fact about " +
+        "the site.",
+    ],
+  };
 }

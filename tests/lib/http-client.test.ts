@@ -4,6 +4,7 @@ import { PAGE_AUDIT_USER_AGENT } from "@/lib/bot-identity";
 import { expectPacedStarts } from "../helpers/pacing";
 import { fetchAuditablePage } from "@/lib/page-reachability";
 import { resetAllSingleFlightCaches } from "@/lib/single-flight";
+import { requestsOf, serve } from "../helpers/serve";
 
 // ── validateUrl ────────────────────────────────────────────────────────────
 
@@ -62,47 +63,40 @@ describe("PAGE_AUDIT_USER_AGENT", () => {
 
 describe("fetchWithTimeout", () => {
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
   it("resolves with the response on success", async () => {
-    const mockResponse = new Response("ok", { status: 200 });
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
+    serve({ "example.com": { body: "ok" } });
 
     const response = await fetchWithTimeout("https://example.com");
     expect(response.status).toBe(200);
-    vi.unstubAllGlobals();
   });
 
   it("sends the User-Agent header", async () => {
-    const mockResponse = new Response("ok", { status: 200 });
-    const fetchMock = vi.fn().mockResolvedValue(mockResponse);
-    vi.stubGlobal("fetch", fetchMock);
+    const mock = serve({ "example.com": { body: "ok" } });
 
     await fetchWithTimeout("https://example.com");
-    const calledWith = fetchMock.mock.calls[0][1] as RequestInit;
-    expect((calledWith.headers as Record<string, string>)["User-Agent"]).toBe(
-      PAGE_AUDIT_USER_AGENT,
-    );
-    vi.unstubAllGlobals();
+    // The page's request, after the robots.txt read the gate makes first.
+    const page = requestsOf(mock).find((request) => !request.url.endsWith("/robots.txt"));
+    expect(page?.headers["user-agent"]).toBe(PAGE_AUDIT_USER_AGENT);
   });
 
   it("throws on non-2xx response", async () => {
-    const mockResponse = new Response("Not Found", { status: 404, statusText: "Not Found" });
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
+    serve({ "/robots.txt": { status: 404 }, "example.com": { status: 404, body: "Not Found" } });
 
     await expect(fetchWithTimeout("https://example.com")).rejects.toThrow("HTTP 404");
-    vi.unstubAllGlobals();
   });
 
-  it("throws a timeout error when AbortError is raised", async () => {
-    const abortError = new DOMException("The operation was aborted", "AbortError");
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(abortError));
+  it("throws a timeout error when the site does not answer within the budget", async () => {
+    // The page hangs until the client's own signal fires, so this fails if the
+    // client stops setting a timeout — not only if it stops translating one.
+    serve({ "/robots.txt": { status: 404 }, "example.com": { hang: true } });
 
     await expect(fetchWithTimeout("https://example.com", 100)).rejects.toThrow(
       "Request timeout after 100ms"
     );
-    vi.unstubAllGlobals();
   });
 });
 
@@ -116,14 +110,10 @@ describe("clearToFetch binds every fetch, not only the crawler", () => {
   });
 
   it("refuses a URL the site's robots.txt disallows for us", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) =>
-        String(url).endsWith("/robots.txt")
-          ? new Response("User-agent: ThatSEOAgentBot\nDisallow: /private/\n", { status: 200 })
-          : new Response("<html></html>", { status: 200 }),
-      ),
-    );
+    serve({
+      "/robots.txt": { body: "User-agent: ThatSEOAgentBot\nDisallow: /private/\n" },
+      "example.com": { body: "<html></html>" },
+    });
 
     await expect(fetchWithTimeout("https://example.com/private/page")).rejects.toThrow(
       /robots\.txt disallows/,
@@ -134,13 +124,12 @@ describe("clearToFetch binds every fetch, not only the crawler", () => {
     // `crawl-pacing` has its own unit tests; none of them would fail if this
     // client stopped calling it. This one would.
     const startedAt: number[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
+    serve({
+      "example.com": () => {
         startedAt.push(Date.now());
-        return new Response("ok", { status: 200 });
-      }),
-    );
+        return { body: "ok" };
+      },
+    });
 
     await fetchWithTimeout("https://example.com/one");
     await fetchWithTimeout("https://example.com/two");
@@ -183,8 +172,7 @@ describe("one turn fetches each document once", () => {
    * time, and the same homepage went out a dozen times to a customer's server.
    */
   it("serves twelve concurrent analyzers from one request", async () => {
-    const fetchMock = vi.fn(async () => new Response("<html>page</html>", { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = serve({ "example.com": { body: "<html>page</html>" } });
 
     const results = await Promise.all(
       Array.from({ length: 12 }, () => fetchHtml("https://example.com/"))
@@ -195,8 +183,7 @@ describe("one turn fetches each document once", () => {
   });
 
   it("shares one request between the HTML fetcher and the reachability check", async () => {
-    const fetchMock = vi.fn(async () => new Response("<html>page</html>", { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = serve({ "example.com": { body: "<html>page</html>" } });
 
     // geo-tools and ai-visibility-tools both ask for the page this way.
     const [a, b] = await Promise.all([
@@ -209,8 +196,7 @@ describe("one turn fetches each document once", () => {
   });
 
   it("keeps separate documents separate", async () => {
-    const fetchMock = vi.fn(async () => new Response("body", { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = serve({ "example.com": { body: "body" } });
 
     await Promise.all([
       fetchHtml("https://example.com/"),

@@ -2,7 +2,8 @@ import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
 import { toolText } from "../lib/tool-result";
-import { readReport, renderReport } from "../lib/google/ga4-report";
+import { quotaNotes, readReport, renderReport, reportBasis } from "../lib/google/ga4-report";
+import { basisSection } from "../lib/render-basis";
 import { ga4Window, ga4WindowSchema } from "../lib/google/ga4-tool-shape";
 import type { GoogleReader } from "../lib/google/reader";
 
@@ -54,6 +55,15 @@ export async function handler(
     dimensions,
     limit: limit ?? DEFAULT_LIMIT,
     offset,
+    // Free to ask for, and the only way to warn before Google starts refusing:
+    // this is the Tool an agent calls in a loop. `quotaNotes` stays silent
+    // unless the property is close to its limit.
+    returnPropertyQuota: true,
+    // The totals line under the table is the one figure a truncated report can
+    // still be read by, and Google fills `totals` only when asked. Nothing asked,
+    // so the line was never printed and the "use the totals line" caveat pointed
+    // at nothing.
+    metricAggregations: ["TOTAL"],
   });
 
   const table = readReport(report);
@@ -61,6 +71,11 @@ export async function handler(
   const lines: string[] = [...window.header];
   lines.push("");
   lines.push(...renderReport(table));
+
+  const quota = quotaNotes(report.propertyQuota);
+  if (quota.length > 0) lines.push("", ...quota);
+
+  lines.push(...basisSection(reportBasis(table)));
 
   return toolText(lines.join("\n"));
 }

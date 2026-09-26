@@ -111,8 +111,9 @@ Both are free. With your project selected:
    and click **Enable**.
 2. Go to <https://console.cloud.google.com/apis/library/analyticsdata.googleapis.com>
    and click **Enable**.
-3. If you also want `ga4_list_properties` to work, enable
-   <https://console.cloud.google.com/apis/library/analyticsadmin.googleapis.com>.
+3. Go to <https://console.cloud.google.com/apis/library/analyticsadmin.googleapis.com>
+   and click **Enable**. `ga4_list_properties`, `ga4_setup_audit` and
+   `ga4_annotations` read it; without it they answer with the page that enables it.
 
 ### 2.3 Configure the consent screen
 
@@ -161,13 +162,13 @@ that looks like the login not having worked: you export in one terminal, log in
 there, start the server in another, and the server has nothing.
 
 `.env` is gitignored. A variable already set in your shell still wins over the
-file, so a one-off `GOOGLE_CLIENT_ID=... pnpm login` is still the way to try a
+file, so a one-off `GOOGLE_CLIENT_ID=... pnpm mcp-auth` is still the way to try a
 second account without editing your configuration and putting it back.
 
 ### 2.6 Log in
 
 ```bash
-pnpm login
+pnpm mcp-auth
 ```
 
 The command prints the two permissions it is about to ask for, opens your
@@ -178,6 +179,12 @@ Logged in.
 ```
 
 You do this once. The server refreshes the access token internally from then on.
+
+Google sends you back to `http://127.0.0.1:3738/callback`, the same address on
+every login. The command listens there only until the redirect arrives, then
+stops. You do not register it anywhere: a **Desktop app** client accepts any
+loopback address. It is deliberately not 3737, so you can log in while the server
+is running.
 
 ### What the two scopes buy
 
@@ -251,6 +258,61 @@ against the last one, and `seo_metric_trend` shows the whole series.
 
 ---
 
+## Billed Google Cloud APIs
+
+Two Tools read sources that need a key of their own. Nothing above depends on
+them; set up only the ones you want. Each Tool that is missing its key says which
+variable to set and where to get it.
+
+### `GOOGLE_CLOUD_API_KEY` — `web_risk_check` and `page_entities`
+
+Both APIs need **billing enabled** on the Google Cloud project, even inside their
+free tiers. That is a different decision from the free `PAGESPEED_API_KEY`, so
+this is a separate variable: the PageSpeed key never has to live on a billed
+project.
+
+1. Pick or create a project with billing at
+   <https://console.cloud.google.com/billing>.
+2. Enable what you need on it:
+   - `web_risk_check`: the Web Risk API,
+     <https://console.cloud.google.com/apis/library/webrisk.googleapis.com>.
+     The first 100,000 lookups a month are free, then $0.50 per 1,000
+     (<https://cloud.google.com/web-risk/pricing>).
+   - `page_entities`: the Cloud Natural Language API,
+     <https://console.cloud.google.com/apis/library/language.googleapis.com>.
+     Entity analysis is free for 5,000 units a month and classification for
+     30,000; a unit is 1,000 characters of text
+     (<https://cloud.google.com/natural-language/pricing>). The Tool sends at most
+     10,000 characters of a page, and the page's text goes to Google Cloud.
+3. Create an API key at <https://console.cloud.google.com/apis/credentials> and
+   put it in `.env` as `GOOGLE_CLOUD_API_KEY=...`.
+
+Restart the server after editing `.env`, as in [2.7](#27-restart-the-server).
+
+---
+
+## Free external sources: Wayback Machine, Wikimedia, Open PageRank
+
+`wayback_history` reads the Internet Archive's Wayback CDX API and
+`brand_pageviews` reads Wikimedia's pageview data. Both are free and need
+**no key**: they work straight after [section 1](#1-install-and-connect).
+
+`domain_authority` reads Open PageRank and needs a free key of its own.
+
+### `OPEN_PAGERANK_API_KEY` — `domain_authority`
+
+1. Sign in at <https://openpagerank.keywordseverywhere.com/dashboard> with a
+   Keywords Everywhere API key. If you have none, the sign-in page offers a free
+   one.
+2. Create an OPR API key on that dashboard.
+3. Put it in `.env` as `OPEN_PAGERANK_API_KEY=...` and restart the server.
+
+The free plan covers 30,000 domain lookups a month at 60 requests a minute, with
+no card. Each domain counts once per call, so comparing a site with nine
+competitors spends ten.
+
+---
+
 ## Common failures
 
 **`ERR_PNPM_IGNORED_BUILDS` during install**
@@ -263,6 +325,11 @@ Something else has the port. The message names what. Stop it, or change the port
 in `src/lib/server-address.json` and rebuild — the address is compiled into the
 build, which is why the server refuses to move rather than starting somewhere
 your client is not looking.
+
+**`Port 3738 on 127.0.0.1 is already in use`**
+The login cannot open the port Google redirects to. Usually another `pnpm mcp-auth`
+is still waiting in a different terminal: finish or cancel that one, and run the
+command again.
 
 **`There is no build to run: dist/http.js does not exist`**
 Run `pnpm build`. If you already did, check whether `pnpm dev` is running in
@@ -292,11 +359,11 @@ the type of an existing one.
 
 **`Google did not return a refresh token`**
 A previous grant is still active. Remove this app at
-<https://myaccount.google.com/permissions> and run `pnpm login` again.
+<https://myaccount.google.com/permissions> and run `pnpm mcp-auth` again.
 
 **`No Full Report for example.com: No Search Console property found`**
 This Google account holds no property covering that domain. Add and verify the
-site at <https://search.google.com/search-console>, or run `pnpm login` again to
+site at <https://search.google.com/search-console>, or run `pnpm mcp-auth` again to
 switch accounts. The credential-free Tools work on it regardless.
 
 **`...property found but not verified`**

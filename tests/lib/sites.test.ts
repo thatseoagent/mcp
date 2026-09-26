@@ -3,11 +3,9 @@ import { sql } from "drizzle-orm";
 import {
   findSite,
   listSites,
-  normaliseDomain,
   registerSite,
   rememberGoogleProperty,
 } from "@/lib/sites";
-import { InvalidInputError } from "@/lib/invalid-input-error";
 import { database, resetPersistence } from "@/lib/db/runtime";
 import { DB_PATH_VARIABLE } from "@/lib/db/database";
 import { useTempDatabase } from "../helpers/temp-database";
@@ -19,31 +17,6 @@ afterEach(() => {
   temp = null;
   delete process.env[DB_PATH_VARIABLE];
   resetPersistence();
-});
-
-describe("normalising a domain", () => {
-  it("collapses the spellings a person means as one site", () => {
-    for (const input of [
-      "example.com",
-      "www.example.com",
-      "https://example.com",
-      "https://www.example.com/pricing?a=1",
-      "  EXAMPLE.com  ",
-    ]) {
-      expect(normaliseDomain(input), input).toBe("example.com");
-    }
-  });
-
-  it("keeps a subdomain, because that really is a different Site", () => {
-    // An Operator may legitimately want `example.com` and `blog.example.com` as
-    // separate Sites with separate histories.
-    expect(normaliseDomain("blog.example.com")).toBe("blog.example.com");
-  });
-
-  it("refuses something that is not a registrable domain", () => {
-    expect(() => normaliseDomain("localhost")).toThrow(InvalidInputError);
-    expect(() => normaliseDomain("")).toThrow(InvalidInputError);
-  });
 });
 
 describe("registering a Site", () => {

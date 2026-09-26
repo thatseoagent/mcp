@@ -28,6 +28,7 @@ import {
 } from "../lib/analyzers/ai-visibility-analyzer";
 import { qualifier, type CheckSource } from "../lib/analyzers/check-source";
 import { parseRobots } from "../lib/analyzers/robots-ruleset";
+import { ANSWER_ENGINE_CRAWLERS, TRAINING_CRAWLERS } from "../lib/ai-crawlers";
 import { publishingEntity } from "../lib/analyzers/publishing-entity";
 import { readPage } from "../lib/analyzers/parsed-page";
 import { fetchAuditablePage, refusalText } from "../lib/page-reachability";
@@ -40,6 +41,7 @@ import { renderCoverage } from "../lib/render-scored-checks";
 import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
 import { toolError, toolText } from "../lib/tool-result";
+import { hostKey } from "../lib/url-match";
 
 export const schema = {
   ...refreshable,
@@ -69,8 +71,6 @@ export const metadata: ToolMetadata = {
 /** Completes the sentence "Could not …" for every failure this Tool can return. */
 const FAILURE_CONTEXT = "score AI visibility for this URL";
 
-/** The AI crawlers whose access this Tool reports on. */
-const AI_CRAWLERS = ["GPTBot", "PerplexityBot", "ClaudeBot", "Google-Extended"];
 
 /**
  * The whole record, not just `found`.
@@ -95,7 +95,7 @@ async function checkLlmsTxt(baseUrl: string): Promise<boolean> {
  * deliberately not reused.
  */
 type AiBotAccessResult =
-  | { status: "ok" | "blocked"; blocked: string[] }
+  | { status: "ok" | "blocked"; blocked: string[]; trainingBlocked: string[] }
   | { status: "unavailable"; blocked: string[]; reason: string };
 
 /**
@@ -121,9 +121,12 @@ async function checkAiBotAccess(baseUrl: string): Promise<AiBotAccessResult> {
   // comes back allowed — the correct answer, reached for the correct reason rather
   // than by an HTML error page happening to parse to nothing.
   const ruleset = parseRobots(textOrEmpty(read));
-  const blocked = AI_CRAWLERS.filter((bot) => ruleset.blocksEntirely(bot));
+  // `status` is decided by the search crawlers alone — see `ai-crawlers.ts`. The
+  // training ones are read so the output can say a block on them costs nothing.
+  const blocked = ANSWER_ENGINE_CRAWLERS.filter((bot) => ruleset.blocksEntirely(bot));
+  const trainingBlocked = TRAINING_CRAWLERS.filter((bot) => ruleset.blocksEntirely(bot));
 
-  return { blocked, status: blocked.length === 0 ? "ok" : "blocked" };
+  return { blocked, trainingBlocked, status: blocked.length === 0 ? "ok" : "blocked" };
 }
 
 /**
@@ -139,7 +142,7 @@ function describe(check: { name: string; source?: CheckSource }): string {
 
 export default defineCachedTool(FAILURE_CONTEXT, { toolName: "ai_visibility_score", domainOf: domainFromUrl }, async ({ url }: InferSchema<typeof schema>) => {
   const parsedUrl = new URL(url);
-  const hostname = parsedUrl.hostname.replace(/^www\./, "");
+  const hostname = hostKey(parsedUrl.hostname) ?? parsedUrl.hostname;
   const hostGuess = hostname.split(".")[0];
   const displayBrand = hostGuess.charAt(0).toUpperCase() + hostGuess.slice(1);
 

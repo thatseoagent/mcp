@@ -6,7 +6,7 @@
  * Every variable this server reads is set once and then wanted by more than one
  * process: the server, the login command, and whatever terminal the Operator
  * happens to be in. `export` scopes them to a single shell, so the natural
- * sequence — export in one window, `pnpm login` there, then start the server in
+ * sequence — export in one window, `pnpm mcp-auth` there, then start the server in
  * another — leaves the server without them, and the failure looks like the login
  * not having worked. A file is the same configuration for every process that
  * reads it, and it survives closing the terminal.
@@ -15,7 +15,7 @@
  *
  * `process.loadEnvFile` does not overwrite a variable that is already set, and
  * that precedence is the right way round: a one-off
- * `GOOGLE_CLIENT_ID=… pnpm login` has to beat the file, or there is no way to try
+ * `GOOGLE_CLIENT_ID=… pnpm mcp-auth` has to beat the file, or there is no way to try
  * a second account without editing your configuration and putting it back.
  *
  * ── Node's own loader, not a dependency and not a parser ──

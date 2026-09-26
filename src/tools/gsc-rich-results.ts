@@ -1,19 +1,13 @@
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
-import { refreshable } from "../lib/with-cache";
 import { toolText } from "../lib/tool-result";
-import { z } from "zod";
-import { resolveSiteUrl } from "../lib/google/property";
-import { resolveWindow } from "../lib/google/gsc-dates";
-import { inspectBusiestPages, whatWasSampled } from "../lib/google/inspected-sample";
+import { fetchRows, gscWindowSchema } from "../lib/google/gsc-tool-shape";
+import { busiest, inspectPages, sampleNote, SAMPLE_SIZE, UNINSPECTED_NOTE } from "../lib/google/busiest-pages";
 import type { GoogleReader } from "../lib/google/reader";
-import { withheld } from "../lib/render-list";
+import { capped } from "../lib/render-list";
+import { basisSection, notCheckedSection } from "../lib/render-basis";
 
-export const schema = {
-  ...refreshable,
-  siteUrl: z.string().describe("The Search Console property, or just the domain."),
-  days: z.number().int().optional().describe("Window used to pick the busiest pages. Default 28."),
-};
+export const schema = gscWindowSchema;
 
 export const metadata: ToolMetadata = {
   name: "gsc_rich_results",
@@ -40,26 +34,35 @@ const MAX_WITHOUT_SHOWN = 15;
 /** How many example URLs to print per rich-result type. */
 const EXAMPLE_URLS = 5;
 
-export async function handler(
-  { siteUrl, days }: InferSchema<typeof schema>,
-  google: GoogleReader,
-) {
-  const property = await resolveSiteUrl(google.searchConsole, siteUrl);
-  const window = resolveWindow({ days: days ?? 28 });
-  const sample = await inspectBusiestPages(google.searchConsole, property, window);
+export async function handler(args: InferSchema<typeof schema>, google: GoogleReader) {
+  const fetched = await fetchRows(google.searchConsole, args, { dimensions: ["page"], title: "RICH RESULTS" });
+  const chosen = busiest(fetched, { by: "impressions", max: SAMPLE_SIZE, default: SAMPLE_SIZE });
+  const inspected = await inspectPages(
+    google.searchConsole,
+    fetched.property,
+    chosen.pages.map((page) => page.url),
+  );
 
-  const answered = sample.inspected.filter((entry) => entry.ok);
-  const withTypes = answered.filter((entry) => entry.ok && entry.summary.richResultTypes.length > 0);
-  const without = answered.filter((entry) => entry.ok && entry.summary.richResultTypes.length === 0);
+  const answered = chosen.pages.flatMap((page, index) => {
+    const entry = inspected[index];
+    return entry.ok ? [{ url: page.url, impressions: page.impressions, summary: entry.summary }] : [];
+  });
+  const withTypes = answered.filter((entry) => entry.summary.richResultTypes.length > 0);
+  const without = answered.filter((entry) => entry.summary.richResultTypes.length === 0);
 
-  const lines: string[] = ["=== RICH RESULTS ==="];
-  lines.push(`Property: ${property}`);
+  const lines: string[] = [...fetched.header];
   lines.push("");
+
+  if (chosen.pages.length === 0) {
+    lines.push("No page had impressions in this window, so there was nothing to inspect.");
+    lines.push(...basisSection(fetched.basis, sampleNote({ reported: chosen.reported, chosen: 0, by: chosen.by, inspected })));
+    return toolText(lines.join("\n"));
+  }
+
   lines.push(`Pages with rich results detected: ${withTypes.length} of ${answered.length}`);
 
   const byType = new Map<string, string[]>();
   for (const entry of withTypes) {
-    if (!entry.ok) continue;
     for (const type of entry.summary.richResultTypes) {
       byType.set(type, [...(byType.get(type) ?? []), entry.url]);
     }
@@ -70,8 +73,7 @@ export async function handler(
     lines.push("=== BY TYPE ===");
     for (const [type, urls] of [...byType.entries()].sort((a, b) => b[1].length - a[1].length)) {
       lines.push(`${type} — ${urls.length} page(s)`);
-      for (const url of urls.slice(0, 5)) lines.push(`  ${url}`);
-      lines.push(...withheld(urls.length, EXAMPLE_URLS));
+      lines.push(...capped(urls, EXAMPLE_URLS));
     }
   }
 
@@ -79,7 +81,7 @@ export async function handler(
   // a verdict that is not PASS, which means the markup is there and Google will
   // not use it — the most actionable state and the easiest to miss.
   const failing = answered.filter(
-    (entry) => entry.ok && entry.summary.richResultsVerdict !== null && entry.summary.richResultsVerdict !== "PASS",
+    (entry) => entry.summary.richResultsVerdict !== null && entry.summary.richResultsVerdict !== "PASS",
   );
   if (failing.length > 0) {
     lines.push("");
@@ -87,7 +89,6 @@ export async function handler(
     lines.push("Google found markup on these and will not show a rich result from it. Run the");
     lines.push("URL through Google's Rich Results Test to see which field it objected to.");
     for (const entry of failing) {
-      if (!entry.ok) continue;
       lines.push(`  ${entry.url} — verdict ${entry.summary.richResultsVerdict}`);
     }
   }
@@ -99,18 +100,26 @@ export async function handler(
     lines.push("there is no rich result for an ordinary article or a homepage. It is worth a");
     lines.push("look only where the page is the kind Google has a rich result for: a product, a");
     lines.push("recipe, an event, an FAQ.");
-    for (const entry of without.slice(0, 15)) {
-      lines.push(`  ${entry.url} — ${entry.impressions} impressions`);
-    }
-    lines.push(...withheld(without.length, MAX_WITHOUT_SHOWN));
+    lines.push(
+      ...capped(
+        without.map((entry) => `${entry.url} — ${entry.impressions} impressions`),
+        MAX_WITHOUT_SHOWN,
+      ),
+    );
   }
 
-  lines.push(...whatWasSampled(sample));
-  lines.push("");
-  lines.push("This is Google's record of what it detected, not a reading of the page's markup.");
-  lines.push("Markup added recently will not appear until Google recrawls — gsc_crawl_freshness");
-  lines.push("says when that last happened.");
-
+  const sample = sampleNote({ reported: chosen.reported, chosen: chosen.pages.length, by: chosen.by, inspected });
+  lines.push(...notCheckedSection(sample.notChecked, { noun: "URLs", note: UNINSPECTED_NOTE }));
+  lines.push(
+    ...basisSection(fetched.basis, sample, {
+      read: [],
+      limits: [
+        "This is Google's record of what it detected, not a reading of the page's markup.",
+        "Markup added recently will not appear until Google recrawls — gsc_crawl_freshness",
+        "says when that last happened.",
+      ],
+    }),
+  );
   return toolText(lines.join("\n"));
 }
 

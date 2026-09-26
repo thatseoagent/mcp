@@ -40,7 +40,6 @@ const MAX_QUERIES_PER_PAGE = 10;
 export async function handler(args: InferSchema<typeof schema>, google: GoogleReader) {
   const { rows, header, footer } = await fetchRows(google.searchConsole, args, {
     dimensions: ["page", "query"],
-    rowLimit: 10_000,
     title: "PAGES AND THE QUERIES THEY RANK FOR",
   });
 

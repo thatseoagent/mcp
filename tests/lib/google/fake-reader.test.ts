@@ -12,7 +12,7 @@ import type { GoogleReader } from "@/lib/google/reader";
  *
  * It is a test rather than a comment because the comment was wrong. It claimed
  * that "any method left unspecified throws — never returns empty", which was
- * never true of any of the eleven methods and contradicted the argument for the
+ * never true of any of the eleven methods it had then and contradicted the argument for the
  * defaults ten lines below it. Throwing and returning a rich fixture are two ways
  * to close the same hole; this file chose the second and said the first.
  */
@@ -40,6 +40,16 @@ const CALLS: Array<[string, (reader: GoogleReader) => Promise<unknown>]> = [
         siteUrl: "sc-domain:example.com",
         startDate: "2026-08-01",
         endDate: "2026-08-28",
+      }),
+  ],
+  [
+    "searchConsole.searchAnalyticsWithMetadata",
+    (r) =>
+      r.searchConsole.searchAnalyticsWithMetadata({
+        siteUrl: "sc-domain:example.com",
+        startDate: "2026-08-01",
+        endDate: "2026-08-28",
+        dimensions: ["query"],
       }),
   ],
   [
@@ -76,6 +86,31 @@ const CALLS: Array<[string, (reader: GoogleReader) => Promise<unknown>]> = [
     "analytics.checkCompatibility",
     (r) => r.analytics.checkCompatibility({ property: "properties/1", metrics: ["sessions"], dateRanges: RANGE }),
   ],
+  [
+    "analytics.runFunnelReport",
+    (r) =>
+      r.analytics.runFunnelReport({
+        property: "properties/1",
+        dateRanges: RANGE,
+        steps: [{ name: "Landing", eventName: "session_start" }],
+      }),
+  ],
+  ["analyticsAdmin.getProperty", (r) => r.analyticsAdmin.getProperty("properties/1")],
+  ["analyticsAdmin.getDataRetention", (r) => r.analyticsAdmin.getDataRetention("properties/1")],
+  ["analyticsAdmin.listDataStreams", (r) => r.analyticsAdmin.listDataStreams("properties/1")],
+  [
+    "analyticsAdmin.getEnhancedMeasurement",
+    (r) => r.analyticsAdmin.getEnhancedMeasurement("properties/1/dataStreams/2"),
+  ],
+  ["analyticsAdmin.getDataRedaction", (r) => r.analyticsAdmin.getDataRedaction("properties/1/dataStreams/2")],
+  ["analyticsAdmin.listKeyEvents", (r) => r.analyticsAdmin.listKeyEvents("properties/1")],
+  ["analyticsAdmin.getAttributionSettings", (r) => r.analyticsAdmin.getAttributionSettings("properties/1")],
+  ["analyticsAdmin.getGoogleSignals", (r) => r.analyticsAdmin.getGoogleSignals("properties/1")],
+  ["analyticsAdmin.getReportingIdentity", (r) => r.analyticsAdmin.getReportingIdentity("properties/1")],
+  ["analyticsAdmin.listChannelGroups", (r) => r.analyticsAdmin.listChannelGroups("properties/1")],
+  ["analyticsAdmin.listGoogleAdsLinks", (r) => r.analyticsAdmin.listGoogleAdsLinks("properties/1")],
+  ["analyticsAdmin.listBigQueryLinks", (r) => r.analyticsAdmin.listBigQueryLinks("properties/1")],
+  ["analyticsAdmin.listAnnotations", (r) => r.analyticsAdmin.listAnnotations("properties/1")],
 ];
 
 /** Empty in the way that matters: nothing a test could assert against. */
@@ -102,6 +137,7 @@ describe("the test reader's defaults", () => {
     const declared = [
       ...Object.keys(reader.searchConsole).map((k) => `searchConsole.${k}`),
       ...Object.keys(reader.analytics).map((k) => `analytics.${k}`),
+      ...Object.keys(reader.analyticsAdmin).map((k) => `analyticsAdmin.${k}`),
     ];
     const exercised = new Set(CALLS.map(([name]) => name.split(" ")[0]));
 

@@ -3,6 +3,7 @@ import { type ToolMetadata, type InferSchema } from "xmcp";
 import { crawlSite, type PageResult } from "../lib/crawlers/site-crawler";
 import { defineCachedTool } from "../lib/define-tool";
 import { domainFromUrl, refreshable } from "../lib/with-cache";
+import { notCheckedSection, type NotChecked } from "../lib/render-basis";
 import { toolText } from "../lib/tool-result";
 import { capped, withheld } from "../lib/render-list";
 
@@ -100,10 +101,12 @@ const FAILURE_CONTEXT = "crawl this site";
  * Stated once, at the end. They used to be four headings each carrying this
  * line, which read as four findings rather than one fact.
  */
-const CROSS_PAGE_NA =
-  "n/a — broken links, click depth, duplicate titles and duplicate meta descriptions. " +
-  "Each compares pages against each other, and only one page was crawled, so none of them ran. " +
-  "Their absence here is not a pass. Ask for more pages with `maxPages`.";
+const CROSS_PAGE_NA: NotChecked = {
+  subject: "Broken links, click depth, duplicate titles and duplicate meta descriptions",
+  reason:
+    "each compares pages against each other, and only one page was crawled, so none of them ran. " +
+    "Their absence here is not a pass. Ask for more pages with `maxPages`.",
+};
 
 /**
  * The one cross-page check more pages will never answer.
@@ -117,10 +120,13 @@ const CROSS_PAGE_NA =
  * Printed on every multi-page report rather than left out, because silence in a
  * report full of cross-page findings reads as "no orphans found".
  */
-const ORPHANS_NA =
-  "n/a — orphan pages. A crawler finds pages by following links, so every page it " +
-  "reaches has one pointing at it; an orphan is the page it never arrives at. Detecting " +
-  "them means comparing the sitemap against what was crawled, which this Tool does not do.";
+const ORPHANS_NA: NotChecked = {
+  subject: "Orphan pages",
+  reason:
+    "a crawler finds pages by following links, so every page it reaches has one pointing at it; " +
+    "an orphan is the page it never arrives at. Detecting them means comparing the sitemap " +
+    "against what was crawled, which this Tool does not do.",
+};
 
 /** How many rows any one cross-page section prints before it says how many it withheld. */
 const MAX_ROWS_SHOWN = 25;
@@ -347,9 +353,9 @@ export default defineCachedTool(
           report.shortPages.map((p) => `${p.url} — ${p.wordCount} words`),
         ),
       );
-      lines.push("", "=== NOT EVALUATED ===", ORPHANS_NA);
+      lines.push(...notCheckedSection([ORPHANS_NA]));
     } else {
-      lines.push("", "=== NOT EVALUATED ===", CROSS_PAGE_NA);
+      lines.push(...notCheckedSection([CROSS_PAGE_NA]));
     }
 
     const issueCount: Record<string, number> = {};

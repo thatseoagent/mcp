@@ -165,7 +165,9 @@ import { REMOVES_FROM_INDEX } from "./technical-requirements";
 import { findNodeInAll, findNodeWith, flattenJsonLd } from "./json-ld-graph";
 import { tally, notScored, type Scorable } from "./scored-checks";
 import { parseRobots } from "./robots-ruleset";
+import { TRAINING_CRAWLERS } from "../ai-crawlers";
 import { answered, textOrEmpty, type WellKnownRead } from "../well-known";
+import type { SitemapListing } from "../site-sitemap";
 import { countWords } from "../text-analyzer";
 import {
   countQuestionHeadings,
@@ -399,70 +401,34 @@ export function scoreStructuredData(schemas: readonly unknown[], schemaTypes: Se
 }
 
 /**
- * The `<lastmod>` a sitemap publishes for one specific page, matched by `<loc>`.
+ * A sitemap answer already interpreted, not the sitemap: `site-sitemap.ts`
+ * reads the files, matches the page by `url-match`'s identity and decides
+ * whether its absence proves anything. This check only says what each answer
+ * means for freshness.
  *
- * Returns `null` when the page is absent from the XML — which is a different answer
- * from "present with no lastmod", and the caller reports them differently.
+ * It used to take the XML, and run its own regex and its own URL normaliser
+ * over it, behind a Tool that followed the index with a third. The
+ * distinctions it reports did not change; who works them out did. One branch
+ * went: "no page URL supplied" could only happen to a caller that did not say
+ * which page it meant, and an answer about one page cannot be asked without one.
  *
- * URL comparison ignores a trailing slash and is case-insensitive on scheme and host
- * only: a sitemap that lists `https://example.com/a/` describes the same page as
- * `https://example.com/a`, but `/A` is a different path on a case-sensitive server.
- */
-/**
- * Un-exported: `scoreFreshness` at the one call site below is its only reader.
- * It was exported with the rest of the scorers and nothing outside this module,
- * not even a test, ever imported it.
- */
-function findSitemapLastmod(
-  sitemapXml: string,
-  pageUrl: string
-): { lastmod: string | null } | null {
-  const normalize = (u: string): string => {
-    try {
-      const parsed = new URL(u.trim());
-      const path = parsed.pathname.replace(/\/+$/, "");
-      return `${parsed.protocol.toLowerCase()}//${parsed.host.toLowerCase()}${path}${parsed.search}`;
-    } catch {
-      return u.trim().replace(/\/+$/, "");
-    }
-  };
-
-  const target = normalize(pageUrl);
-
-  for (const block of sitemapXml.match(/<url\b[\s\S]*?<\/url>/gi) ?? []) {
-    const loc = block.match(/<loc>\s*([\s\S]*?)\s*<\/loc>/i)?.[1];
-    if (!loc || normalize(loc) !== target) continue;
-    const lastmod = block.match(/<lastmod>\s*([\s\S]*?)\s*<\/lastmod>/i)?.[1];
-    return { lastmod: lastmod ?? null };
-  }
-
-  return null;
-}
-
-/**
- * `pageUrl` is optional so the check can say why it could not run rather than
- * silently comparing against an unrelated entry, which is what it used to do.
- */
-/**
- * `sitemapRead` rather than the XML, for one branch out of five.
+ * The sitemap-consistency check below resolves to `passed: false` for four
+ * distinct states, and only three of them are findings about the site. "Page is
+ * not listed", "no lastmod published" and "no sitemap at all" are real, and stay
+ * scored. "We could not read a sitemap" is not: it is the same unanswered read
+ * as the four bot checks, and it cost 5 points (#337). That includes an index
+ * whose children did not all load, or that lists more than the read opens —
+ * there are sitemaps we did not look in, so "not listed" would be a guess.
  *
- * The sitemap-consistency check below resolves to `passed: false` for five distinct
- * states, and only three of them are findings about the site. "Page is not listed"
- * and "no lastmod published" are real, and stay scored. "We could not read a
- * sitemap" is not: it is the same unanswered read as the four bot checks, and it
- * cost 5 points (#337).
- *
- * Deliberately narrow. `absent` — the site has no sitemap at all — stays a scored
- * failure, because that IS a finding, and telling the two apart is exactly what the
- * three-state read is for.
+ * Deliberately narrow. `no-sitemap` — the site has no sitemap at all — stays a
+ * scored failure, because that IS a finding, and telling the two apart is
+ * exactly what the three-state read is for.
  */
 export function scoreFreshness(
   schemas: readonly unknown[],
-  sitemapRead: WellKnownRead,
+  sitemap: SitemapListing,
   pageType: PageKind,
-  pageUrl?: string
 ): GeoCategory {
-  const sitemapXml = textOrEmpty(sitemapRead);
   const checks: GeoCheck[] = [];
 
   const freshnessNA = isUndatedPage(pageType);
@@ -506,29 +472,25 @@ export function scoreFreshness(
     // index's date to the page's — thatseoagent.com reported "differs by 47 days" while
     // its child sitemap carried the correct per-URL date. On any multi-URL sitemap it
     // compared some other page's date. Both produce a failure the site cannot act on.
-    const entry = pageUrl ? findSitemapLastmod(sitemapXml, pageUrl) : null;
+    // The answer arrives matched to this page now, so there is no document to misread.
     let sitemapConsistent = false;
     let sitemapDetail: string;
 
-    if (!answered(sitemapRead)) {
-      sitemapDetail = notScored(
-        sitemapRead.outcome === "unavailable" ? sitemapRead.reason : "the sitemap could not be read on this run",
-      );
-    } else if (!sitemapXml.trim()) {
+    if (sitemap.outcome === "unread") {
+      sitemapDetail = notScored(sitemap.reason);
+    } else if (sitemap.outcome === "no-sitemap") {
       sitemapDetail = "No sitemap available to check";
-    } else if (!pageUrl) {
-      sitemapDetail = "No page URL supplied, cannot match a sitemap entry";
-    } else if (!entry) {
+    } else if (sitemap.outcome === "not-listed") {
       // A distinct, more actionable finding than a date mismatch: a page missing from
       // the sitemap has a discovery problem, not a freshness one.
       sitemapDetail = "Page is not listed in the sitemap";
-    } else if (!entry.lastmod) {
+    } else if (!sitemap.lastmod) {
       sitemapDetail = "Sitemap lists this page but publishes no lastmod for it";
     } else if (!dateModifiedStr) {
       sitemapDetail = "Sitemap has lastmod for this page but the schema has no dateModified";
     } else {
       const diffDays =
-        Math.abs(new Date(entry.lastmod).getTime() - new Date(dateModifiedStr).getTime()) /
+        Math.abs(new Date(sitemap.lastmod).getTime() - new Date(dateModifiedStr).getTime()) /
         (1000 * 60 * 60 * 24);
       sitemapConsistent = diffDays <= 7;
       sitemapDetail = sitemapConsistent
@@ -540,7 +502,7 @@ export function scoreFreshness(
       passed: sitemapConsistent,
       label: LABEL.sitemapLastmod, source: FRESHNESS_HEURISTIC,
       points: 5,
-      status: answered(sitemapRead) ? undefined : "not-evaluated",
+      status: sitemap.outcome === "unread" ? "not-evaluated" : undefined,
       detail: sitemapDetail,
     });
   }
@@ -636,6 +598,13 @@ export function scoreContentStructure(page: ParsedPage, pageType: PageKind): Geo
  * `absent` is deliberately still a pass. No robots.txt means no rules, so every
  * crawler really is allowed — the case this used to get right by accident and now
  * gets right on purpose.
+ *
+ * The crawlers scored are the ones that feed AI answers — OAI-SearchBot (5),
+ * PerplexityBot (3) and Claude-SearchBot (3). The category used to score GPTBot
+ * (5), ClaudeBot (3) and Google-Extended (2) alongside PerplexityBot, which
+ * charged a training opt-out as lost visibility and let a site block ChatGPT and
+ * Claude search for free. `ai-crawlers.ts` has the full account. Training
+ * crawlers are still reported, in one row worth nothing.
  */
 export function scoreAiCrawlerAccess(
   robotsRead: WellKnownRead,
@@ -652,7 +621,7 @@ export function scoreAiCrawlerAccess(
   const checks: GeoCheck[] = [];
 
   /**
-   * The four AI crawlers, as one loop.
+   * The AI search crawlers, as one loop.
    *
    * They were four copies of the same nine lines differing only in a name and a
    * point value, and each copy's `detail` restated its own label: the row read
@@ -667,14 +636,13 @@ export function scoreAiCrawlerAccess(
    * a pass, for different reasons, and only one of them is worth acting on if it
    * changes.
    */
-  const AI_CRAWLERS: ReadonlyArray<{ bot: string; points: number }> = [
-    { bot: "GPTBot", points: 5 },
+  const SEARCH_CRAWLERS: ReadonlyArray<{ bot: string; points: number }> = [
+    { bot: "OAI-SearchBot", points: 5 },
     { bot: "PerplexityBot", points: 3 },
-    { bot: "ClaudeBot", points: 3 },
-    { bot: "Google-Extended", points: 2 },
+    { bot: "Claude-SearchBot", points: 3 },
   ];
 
-  for (const { bot, points } of AI_CRAWLERS) {
+  for (const { bot, points } of SEARCH_CRAWLERS) {
     const blocked = isBotBlocked(robotsTxt, bot);
     checks.push({
       passed: !blocked,
@@ -690,6 +658,24 @@ export function scoreAiCrawlerAccess(
             : `/robots.txt has no Disallow rule matching ${bot}`),
     });
   }
+
+  // Reported and never scored, on the llms.txt model below: whether a site lets
+  // its content train models is its own decision, and it moves nothing in an
+  // answer. Stated so a blocked GPTBot is not mistaken for the cause of anything.
+  const trainingBlocked = robotsUnread
+    ? []
+    : TRAINING_CRAWLERS.filter((bot) => isBotBlocked(robotsTxt, bot));
+  checks.push({
+    passed: true,
+    label: "Training crawlers (informational — opting out costs nothing here)", source: ROBOTS_FACT,
+    points: 0,
+    status: robotsUnread ? "not-evaluated" : undefined,
+    detail:
+      robotsDetail ??
+      (trainingBlocked.length > 0
+        ? `${trainingBlocked.join(", ")} blocked: the training opt-out. It does not stop AI search from reading or citing the page`
+        : "No training crawler is blocked. Blocking one would not change this score"),
+  });
 
   const metaRobotsContent = html.match(/<meta[^>]+name=["']robots["'][^>]*content=["']([^"']+)["']/i)?.[1] ?? "";
   const hasNosnippet = /nosnippet/i.test(metaRobotsContent) || /data-nosnippet/i.test(html);
@@ -1192,10 +1178,9 @@ export function buildRecommendations(categories: GeoCategory[]): string[] {
     [LABEL.qaPattern]: "Add a Q&A section in the page itself using semantic HTML (details/summary or dt/dd), not only in schema — per Ahrefs' 2026 causal study the schema alone produced no measurable lift (ahrefs.com/blog/schema-ai-citations)",
     "Lists ratio > 10% (structured content)": "Use lists (ul/ol) where the content is a list. A reader skimming finds the items; prose hides them",
     "Statistics & numerical data (%, $, ratios)": "Include the actual numbers behind your claims — a figure someone can check is worth more than an adjective",
-    "GPTBot allowed in robots.txt": "Remove the GPTBot block from robots.txt if you want ChatGPT to be able to read this page — while it is blocked, it cannot fetch the page at all",
-    "PerplexityBot allowed in robots.txt": "Remove the PerplexityBot block from robots.txt if you want Perplexity to be able to read this page",
-    "ClaudeBot allowed in robots.txt": "Remove the ClaudeBot block from robots.txt if you want Claude to be able to read this page",
-    "Google-Extended allowed in robots.txt": "Allow Google-Extended in robots.txt if you want the page usable by Gemini and grounding in AI Overviews. It does not affect Google Search ranking or indexing",
+    "OAI-SearchBot allowed in robots.txt": "Remove the OAI-SearchBot block from robots.txt if you want the page cited in ChatGPT search — while it is blocked, OpenAI's search index cannot include it. To opt out of training only, block GPTBot instead",
+    "PerplexityBot allowed in robots.txt": "Remove the PerplexityBot block from robots.txt if you want the page cited in Perplexity's answers",
+    "Claude-SearchBot allowed in robots.txt": "Remove the Claude-SearchBot block from robots.txt if you want the page cited in Claude's search results. To opt out of training only, block ClaudeBot instead",
     "No nosnippet in meta robots or data-nosnippet": "Remove nosnippet if you want the page quoted — it tells Google not to show a text snippet for the page",
     "Named author (not generic Team/Admin/Staff)": "Credit a named person rather than \"Team\" or \"Admin\", so a reader can see who is accountable for the claims. Note Google states E-E-A-T is not itself a ranking factor",
     "Outbound links to .edu or .gov domains": "Link to the primary sources you relied on, wherever they live. Our check looks for .edu and .gov because they are easy to recognise, not because other sources count less",
@@ -1286,8 +1271,8 @@ export interface GeoInput {
   responseHeaders: Record<string, string>;
   /** What the site's robots.txt said, or why we do not know. */
   robotsRead: WellKnownRead;
-  /** The sitemap that actually contains this page, resolved by the caller. */
-  sitemapRead: WellKnownRead;
+  /** What the site's sitemaps say about this page, resolved by the caller. */
+  sitemap: SitemapListing;
   /** Whether the site publishes an llms.txt. Worth 0 points, and says so. */
   llmsTxtExists: boolean;
   /** The brand's Knowledge Graph lookup, and whether a key was configured. */
@@ -1330,7 +1315,7 @@ export interface GeoReading extends GeoScoreResult {
  * them any more.
  */
 export function scoreGeo(input: GeoInput): GeoReading {
-  const { page, html, httpStatus, responseHeaders, robotsRead, sitemapRead } = input;
+  const { page, html, httpStatus, responseHeaders, robotsRead, sitemap } = input;
   // The four scorers that read the page's *words* take the document, because
   // `html` and the reading of it are one thing — "a data clump wearing a
   // parameter list", as `parsed-page.ts` puts it about the signatures it fixed
@@ -1342,7 +1327,7 @@ export function scoreGeo(input: GeoInput): GeoReading {
 
   const categories: GeoCategory[] = [
     scoreStructuredData(schemas, schemaTypes, pageType),
-    scoreFreshness(schemas, sitemapRead, pageType, page.url),
+    scoreFreshness(schemas, sitemap, pageType),
     scoreContentStructure(page, pageType),
     scoreAiCrawlerAccess(robotsRead, html, input.llmsTxtExists),
     scoreAuthorEeat(html, schemas, pageType),

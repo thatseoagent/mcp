@@ -19,20 +19,134 @@
  * The status is carried as a field for callers that branch on it, and because
  * reading it back out of `message` would couple a decision to prose that exists
  * to be reworded.
+ *
+ * ── The one thing read out of the body ──
+ *
+ * The commonest failure on a fresh Google Cloud project is an API nobody enabled,
+ * and it arrives as a 403 indistinguishable by status from a refused key or a
+ * property the account cannot read. Google says which in a structured field —
+ * `error.details[].reason` is `SERVICE_DISABLED`, with the API's host name and
+ * the project number beside it — and the generic 403 sentence made the Operator
+ * guess between three fixes when the response had named one.
+ *
+ * So the body is *parsed* for that, and nothing from it is forwarded as text.
+ * Two tokens are taken, each checked against a strict pattern — a
+ * `*.googleapis.com` host and a numeric project — and the sentence and the
+ * console URL are rebuilt from them here. Anything that does not match is
+ * dropped and the status sentence stands, which is the same message as before.
  */
 import { logError } from "./log";
+
+/**
+ * A refusal Google explained, reduced to the tokens a fixed sentence needs.
+ *
+ * - `api-disabled` — the API is not enabled on the Cloud project the key or the
+ *   OAuth client belongs to.
+ * - `key-restricted` — the API key carries an API restriction that leaves this
+ *   API out.
+ * - `billing-disabled` — the API is enabled but its project has no billing
+ *   account, which the paid Cloud APIs (Web Risk, Natural Language) require
+ *   even inside their free tier.
+ */
+export type GoogleRefusal =
+  | { reason: "api-disabled"; api: string; project: string }
+  | { reason: "billing-disabled"; api: string; project: string }
+  | { reason: "key-restricted"; api: string };
+
+/** A Google API host, e.g. `searchconsole.googleapis.com`. Nothing looser. */
+const API_HOST = /^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.googleapis\.com$/;
+/** The consumer as Google writes it: `projects/<number>`. */
+const PROJECT = /^projects\/(\d{1,20})$/;
+
+/**
+ * Read a {@link GoogleRefusal} out of a Google error body, or `null`.
+ *
+ * Exported for its test. Tolerant of every shape that is not the one it wants,
+ * because a body that is HTML, truncated or from a proxy is ordinary.
+ */
+export function readGoogleRefusal(body: string): GoogleRefusal | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  const error = isObject(parsed) && isObject(parsed.error) ? parsed.error : null;
+  const details = error && Array.isArray(error.details) ? error.details : [];
+
+  for (const detail of details) {
+    if (!isObject(detail) || typeof detail.reason !== "string") continue;
+    const metadata = isObject(detail.metadata) ? detail.metadata : {};
+    const api = typeof metadata.service === "string" && API_HOST.test(metadata.service)
+      ? metadata.service
+      : null;
+    if (!api) continue;
+
+    const project =
+      typeof metadata.consumer === "string" ? PROJECT.exec(metadata.consumer)?.[1] : undefined;
+    if (detail.reason === "SERVICE_DISABLED" && project) {
+      return { reason: "api-disabled", api, project };
+    }
+    if (detail.reason === "BILLING_DISABLED" && project) {
+      return { reason: "billing-disabled", api, project };
+    }
+    if (detail.reason === "API_KEY_SERVICE_BLOCKED") {
+      return { reason: "key-restricted", api };
+    }
+  }
+  return null;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** The fix, as a fixed sentence around the two validated tokens. */
+function describeRefusal(refusal: GoogleRefusal): string {
+  if (refusal.reason === "api-disabled") {
+    return (
+      `The API it needs (${refusal.api}) is not enabled on the Google Cloud project these ` +
+      `credentials belong to. Enable it at https://console.developers.google.com/apis/api/` +
+      `${refusal.api}/overview?project=${refusal.project} and retry in a few minutes — ` +
+      "the change takes a moment to reach Google's servers. Nothing else is misconfigured."
+    );
+  }
+  if (refusal.reason === "billing-disabled") {
+    return (
+      `The API it needs (${refusal.api}) requires a billing account on the Google Cloud ` +
+      `project these credentials belong to, and that project has none. Link one at ` +
+      `https://console.cloud.google.com/billing/linkedaccount?project=${refusal.project} — ` +
+      "the free tier still applies once it is linked. The key and the API are otherwise fine."
+    );
+  }
+  return (
+    `The API key is restricted to other APIs and ${refusal.api} is not among them. Add it ` +
+    "under the key's API restrictions at https://console.cloud.google.com/apis/credentials, " +
+    "or remove the restriction."
+  );
+}
 
 export class UpstreamApiError extends Error {
   /** The HTTP status the API answered with. */
   readonly status: number;
   /** The API, named as the Operator would name it. */
   readonly service: string;
+  /**
+   * Why Google refused, when it said so in a form we can check. For callers that
+   * branch on it: a disabled API is not a property the account cannot read, and
+   * retrying with the other property shape will not enable it.
+   */
+  readonly refusal: GoogleRefusal | null;
 
-  constructor(service: string, status: number) {
-    super(`${service} returned HTTP ${status}. ${describeUpstreamStatus(status)}`);
+  constructor(service: string, status: number, refusal: GoogleRefusal | null = null) {
+    super(
+      `${service} returned HTTP ${status}. ` +
+        (refusal ? describeRefusal(refusal) : describeUpstreamStatus(status)),
+    );
     this.name = "UpstreamApiError";
     this.status = status;
     this.service = service;
+    this.refusal = refusal;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 
@@ -47,7 +161,7 @@ export class UpstreamApiError extends Error {
   static async fromResponse(service: string, response: Response): Promise<UpstreamApiError> {
     const body = await response.text().catch(() => "");
     if (body) logError(`${service} returned HTTP ${response.status}`, body.slice(0, 1_000));
-    return new UpstreamApiError(service, response.status);
+    return new UpstreamApiError(service, response.status, readGoogleRefusal(body));
   }
 }
 

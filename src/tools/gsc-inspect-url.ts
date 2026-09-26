@@ -2,6 +2,7 @@ import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineGoogleTool } from "../lib/define-tool";
 import { refreshable } from "../lib/with-cache";
+import { basisSection } from "../lib/render-basis";
 import { toolText } from "../lib/tool-result";
 import { resolveSiteUrl } from "../lib/google/property";
 import { inspectUrlOnce } from "../lib/google/inspection-cache";
@@ -113,11 +114,15 @@ export async function handler(
     );
   }
 
-  lines.push("");
-  lines.push("=== NOTE ===");
-  lines.push("This is Google's own record, not a fresh crawl. A change made in the last few");
-  lines.push("days may not be reflected yet, and 'not reported' means Google did not answer");
-  lines.push("that part — never that the check passed.");
+  lines.push(
+    ...basisSection({
+      read: ["This is Google's own record, not a fresh crawl."],
+      limits: [
+        "A change made in the last few days may not be reflected yet, and 'not reported' means",
+        "Google did not answer that part — never that the check passed.",
+      ],
+    }),
+  );
 
   return toolText(lines.join("\n"));
 }

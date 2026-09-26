@@ -34,13 +34,22 @@ vi.mock("node:dns/promises", () => ({
 // at creation. This used to name three of them and the other three were cleared
 // by hand in whichever files happened to notice, so a cache added later inherited
 // the leak and produced its failure somewhere else.
+//
+// The fixed APIs' per-minute ceilings are process-wide too, and register
+// themselves the same way (`ceiling-limiter.ts`). CrUX's window used to be
+// reset by hand in the three files that noticed, so a file that forgot would
+// have had its 151st request wait a minute for a quota earlier tests had spent.
 beforeEach(async () => {
-  const [{ resetCrawlPacing }, { resetAllSingleFlightCaches }] = await Promise.all([
-    import("@/lib/crawl-pacing"),
-    import("@/lib/single-flight"),
-  ]);
-  // Not a single-flight cache: the pacing ledger is a budget, not an answer.
+  const [{ resetCrawlPacing }, { resetAllSingleFlightCaches }, { resetAllCeilingLimiters }] =
+    await Promise.all([
+      import("@/lib/crawl-pacing"),
+      import("@/lib/single-flight"),
+      import("@/lib/ceiling-limiter"),
+    ]);
+  // Not single-flight caches: the pacing ledger and the ceilings are budgets,
+  // not answers.
   resetCrawlPacing();
+  resetAllCeilingLimiters();
   resetAllSingleFlightCaches();
 });
 

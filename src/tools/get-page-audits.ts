@@ -2,6 +2,7 @@ import { z } from "zod";
 import { type ToolMetadata, type InferSchema } from "xmcp";
 import { defineCachedTool } from "../lib/define-tool";
 import { refreshable } from "../lib/with-cache";
+import { basisSection } from "../lib/render-basis";
 import { toolText } from "../lib/tool-result";
 import { persistenceStatus } from "../lib/db/runtime";
 import { findSite, NoDatabaseError } from "../lib/sites";
@@ -73,10 +74,14 @@ export async function handler({ domain, url }: InferSchema<typeof schema>) {
     lines.push(`Last audited: ${audit.updatedAt.toISOString().slice(0, 10)}`);
     lines.push("");
     lines.push(audit.contextJson);
-    lines.push("");
-    lines.push("=== NOTE ===");
-    lines.push("This is the audit as it was stored, not a fresh read of the page. Run");
-    lines.push("run_page_audit again to see what the page looks like now and what moved.");
+    lines.push(
+      ...basisSection({
+        read: [
+          "This is the audit as it was stored, not a fresh read of the page. Run",
+          "run_page_audit again to see what the page looks like now and what moved.",
+        ],
+      }),
+    );
     return toolText(lines.join("\n"));
   }
 

@@ -159,6 +159,31 @@ describe("run_site_audit with Property Access", () => {
     const site = findSite("example.com")!;
     expect(readSeries(site.id, "ga4.sessions")).toHaveLength(1);
   });
+
+  it("records sessions as unmeasured when GA4 reports no total, rather than as zero", async () => {
+    // The total used to be read off a report that never asked for one, so every
+    // run stored a site with no visits.
+    temp = useTempDatabase();
+    servePublicSurface();
+    const google = fakeGoogleReader({
+      analytics: {
+        runReport: async () => ({
+          dimensionHeaders: [{ name: "sessionSource" }, { name: "sessionMedium" }],
+          metricHeaders: [{ name: "sessions" }],
+          rows: [{ dimensionValues: [{ value: "chatgpt.com" }, { value: "ai-assistant" }], metricValues: [{ value: "12" }] }],
+          rowCount: 1,
+        }),
+      },
+    });
+
+    const text = textOf(await audit({ ga4PropertyId: "properties/123456789" }, google));
+    const site = findSite("example.com")!;
+
+    expect(text).toContain("Sessions: not measured");
+    expect(text).toContain("From AI assistants: 12");
+    expect(readSeries(site.id, "ga4.sessions")[0].value).toBeNull();
+    expect(readSeries(site.id, "ga4.aiSessions")[0].value).toBe(12);
+  });
 });
 
 describe("run_site_audit refusing rather than degrading", () => {

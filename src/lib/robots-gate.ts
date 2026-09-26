@@ -50,6 +50,21 @@ export class RobotsDisallowedError extends Error {
 }
 
 /**
+ * The clause a Tool prints when it caught a {@link RobotsDisallowedError} for one
+ * URL among several and carries on.
+ *
+ * One sentence because it was six. The page readers, the sitemap reader, the
+ * llms.txt link probe and the Wayback live check each wrote their own — "for our
+ * crawler", "for this server's crawler", "and we honour that" — about the same
+ * event, and a reader comparing two Tools' output could not tell whether the
+ * wording difference was a difference in what happened. It says the rule is the
+ * site's and the choice was ours, which is the distinction the error type exists
+ * for. A clause, without a closing period, because every caller renders it after
+ * "not checked:" or a dash.
+ */
+export const ROBOTS_REFUSAL = "robots.txt disallows this URL for our crawler, so it was not fetched";
+
+/**
  * The origin's robots.txt, parsed.
  *
  * Unreachable or erroring robots.txt means no rules, which is what every crawler

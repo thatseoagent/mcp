@@ -3,11 +3,13 @@
  * Validates hreflang tags from HTML, HTTP headers, and optionally sitemaps.
  */
 
-import { load } from "cheerio";
+import { load, type CheerioAPI } from "cheerio";
 import pLimit from "p-limit";
 import { XMLParser } from "fast-xml-parser";
 import { type Result, success, failure } from "../type-guards";
 import { notScored } from "./scored-checks";
+import { urlKey } from "../url-match";
+import type { ParsedPage } from "./parsed-page";
 import { fetchAnyStatus, fetchWithTimeout, validateUrl } from "../http-client";
 import {
   validateLanguageCode,
@@ -68,24 +70,22 @@ interface AccessibilitySweep {
   unchecked: number;
 }
 
+export interface HreflangOptions {
+  checkBidirectional?: boolean;
+  checkAccessibility?: boolean;
+  sitemapUrl?: string;
+}
+
 /**
  * Validate hreflang tags for a URL.
  * Returns Result type for explicit error handling.
  */
 export async function validateHreflang(
   url: string,
-  options?: {
-    checkBidirectional?: boolean;
-    checkAccessibility?: boolean;
-    sitemapUrl?: string;
-  }
+  options?: HreflangOptions
 ): Promise<Result<HreflangValidationResult>> {
   try {
     validateUrl(url);
-
-  const checkBidirectional = options?.checkBidirectional ?? true;
-  const checkAccessibility = options?.checkAccessibility ?? true;
-  const sitemapUrl = options?.sitemapUrl;
 
   // Fetch and parse HTML
   const response = await fetchWithTimeout(url);
@@ -94,11 +94,51 @@ export async function validateHreflang(
   // root → /en, or http → https, or trailing-slash normalizations).
   const effectiveUrl = response.url || url;
   const html = await response.text();
-  const $ = load(html);
+
+  return await validateDocument(effectiveUrl, load(html), response.headers.get("link"), options);
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    return failure(err);
+  }
+}
+
+/**
+ * The same validation, of a page the caller has already read.
+ *
+ * `site_hreflang_country_gap` read the homepage through the Reachability Gate
+ * and then called {@link validateHreflang}, which fetched it again through an
+ * uncached request and put the Tool back in the business of translating a
+ * second fetch's failures into reasons. The bytes it needed were already in
+ * hand: the document, and the response headers for the `Link` header. `page.url`
+ * is where the read landed, so the redirect rule above holds without a request.
+ */
+export async function validateHreflangOfPage(
+  page: Pick<ParsedPage, "url" | "$">,
+  headers: Readonly<Record<string, string>>,
+  options?: HreflangOptions
+): Promise<Result<HreflangValidationResult>> {
+  try {
+    return await validateDocument(page.url, page.$, headers["link"] ?? null, options);
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    return failure(err);
+  }
+}
+
+/** Everything after the page is in hand. Throws; both entry points wrap it in a Result. */
+async function validateDocument(
+  effectiveUrl: string,
+  $: CheerioAPI,
+  linkHeader: string | null,
+  options?: HreflangOptions
+): Promise<Result<HreflangValidationResult>> {
+  const checkBidirectional = options?.checkBidirectional ?? true;
+  const checkAccessibility = options?.checkAccessibility ?? true;
+  const sitemapUrl = options?.sitemapUrl;
 
   // Extract hreflang tags from different sources
   const htmlTags = extractHreflangFromHtml($, effectiveUrl);
-  const httpHeaderTags = extractHreflangFromHeaders(response.headers, effectiveUrl);
+  const httpHeaderTags = extractHreflangFromHeaders(linkHeader, effectiveUrl);
   const sitemapTags = sitemapUrl
     ? await extractHreflangFromSitemap(sitemapUrl, effectiveUrl)
     : [];
@@ -187,10 +227,6 @@ export async function validateHreflang(
     issues,
     recommendations,
   });
-  } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
-    return failure(err);
-  }
 }
 
 /**
@@ -220,11 +256,10 @@ function extractHreflangFromHtml(
  * Extract hreflang tags from HTTP Link header.
  */
 function extractHreflangFromHeaders(
-  headers: Headers,
+  linkHeader: string | null,
   baseUrl: string
 ): HreflangTag[] {
   const tags: HreflangTag[] = [];
-  const linkHeader = headers.get("link");
 
   if (!linkHeader) return tags;
 
@@ -351,9 +386,9 @@ function checkSelfReference(
   currentUrl: string,
   issues: HreflangIssue[]
 ): boolean {
-  const normalizedCurrent = normalizeUrl(currentUrl);
+  const normalizedCurrent = hreflangKey(currentUrl);
   const selfReferencing = tags.some(
-    (tag) => normalizeUrl(tag.href) === normalizedCurrent
+    (tag) => hreflangKey(tag.href) === normalizedCurrent
   );
 
   if (!selfReferencing && tags.length > 0) {
@@ -411,7 +446,7 @@ async function readAlternates(
 ): Promise<{ reads: Map<string, AlternateRead>; skipped: number }> {
   const byUrl = new Map<string, string>();
   for (const tag of tags) {
-    const key = normalizeUrl(tag.href);
+    const key = hreflangKey(tag.href);
     if (!byUrl.has(key)) byUrl.set(key, tag.href);
   }
 
@@ -482,7 +517,7 @@ function reportAccessibility(
   const seen = new Set<string>();
 
   for (const tag of tags) {
-    const key = normalizeUrl(tag.href);
+    const key = hreflangKey(tag.href);
     if (seen.has(key)) continue;
     seen.add(key);
 
@@ -544,11 +579,11 @@ function validateBidirectional(
   reads: Map<string, AlternateRead>,
   issues: HreflangIssue[],
 ): void {
-  const normalizedCurrent = normalizeUrl(currentUrl);
+  const normalizedCurrent = hreflangKey(currentUrl);
   const seen = new Set<string>();
 
   for (const tag of tags) {
-    const key = normalizeUrl(tag.href);
+    const key = hreflangKey(tag.href);
     if (key === normalizedCurrent || tag.lang === "x-default" || seen.has(key)) continue;
     seen.add(key);
 
@@ -573,10 +608,10 @@ function validateBidirectional(
     const $ = load(read.body.html);
     const referenced = [
       ...extractHreflangFromHtml($, tag.href),
-      ...extractHreflangFromHeaders(read.body.headers, tag.href),
+      ...extractHreflangFromHeaders(read.body.headers.get("link"), tag.href),
     ];
 
-    if (!referenced.some((refTag) => normalizeUrl(refTag.href) === normalizedCurrent)) {
+    if (!referenced.some((refTag) => hreflangKey(refTag.href) === normalizedCurrent)) {
       issues.push({
         type: "warning",
         category: "bidirectional",
@@ -651,20 +686,18 @@ function checkDuplicates(tags: HreflangTag[], issues: HreflangIssue[]): void {
 }
 
 /**
- * Normalize URL for comparison.
+ * The key an hreflang URL is compared by: `url-match.ts`'s, with the scheme and
+ * host as written.
+ *
+ * Not the lenient key the `site_*` Tools match lists with. Google asks for
+ * alternate URLs "fully-qualified, including the transport method (http/https)"
+ * and ignores a pair that does not point both ways, so a return link to
+ * `http://example.com/` does not answer `https://www.example.com/`, and saying it
+ * does would pass a cluster Google drops. Path case counts, as it does to the
+ * server. Unparseable hrefs compare as written.
  */
-function normalizeUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    // Strip trailing slash from path (except root "/") for consistent comparison
-    const pathname =
-      parsed.pathname.length > 1
-        ? parsed.pathname.replace(/\/+$/, "")
-        : parsed.pathname;
-    return `${parsed.origin}${pathname}${parsed.search}`.toLowerCase();
-  } catch {
-    return url.toLowerCase().replace(/\/+$/, "");
-  }
+function hreflangKey(url: string): string {
+  return urlKey(url, undefined, { origin: "exact" }) ?? url;
 }
 
 /**

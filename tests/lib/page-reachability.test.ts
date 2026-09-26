@@ -11,20 +11,21 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import { fetchAuditablePage } from "@/lib/page-reachability";
 import { resetAllSingleFlightCaches } from "@/lib/single-flight";
+import { serve } from "../helpers/serve";
 
-const realFetch = globalThis.fetch;
 // Each case mocks its own response for the same URL, so the shared-request cache
 // has to be dropped between them or the second case reads the first case's page.
 beforeEach(() => { resetAllSingleFlightCaches(); });
-afterEach(() => { globalThis.fetch = realFetch; vi.restoreAllMocks(); });
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
-const serve = (status: number, body = "<html><body>ok</body></html>", headers: Record<string, string> = {}) => {
-  globalThis.fetch = vi.fn(async () => new Response(body, { status, headers })) as unknown as typeof fetch;
+/** Every request on example.com, robots.txt included, answered with this. */
+const answer = (status: number, body = "<html><body>ok</body></html>", headers: Record<string, string> = {}) => {
+  serve({ "example.com": { status, body, headers } });
 };
 
 describe("a readable page", () => {
   it("returns the body and the headers", async () => {
-    serve(200, "<html><body>hello</body></html>", { "x-test": "1", "Last-Modified": "now" });
+    answer(200, "<html><body>hello</body></html>", { "x-test": "1", "Last-Modified": "now" });
     const r = await fetchAuditablePage("https://example.com/");
 
     expect(r.ok).toBe(true);
@@ -45,7 +46,7 @@ describe("an unreadable page stops the audit", () => {
     [500, /server failed to serve/i],
     [503, /server failed to serve/i],
   ])("refuses HTTP %i and says why", async (status, expected) => {
-    serve(status, "<html><body>Not found</body></html>");
+    answer(status, "<html><body>Not found</body></html>");
     const r = await fetchAuditablePage("https://example.com/gone");
 
     expect(r.ok).toBe(false);
@@ -57,14 +58,14 @@ describe("an unreadable page stops the audit", () => {
   });
 
   it("does not hand back the error page's body", async () => {
-    serve(404, "<html><body>Our 404 page, with a nav and a footer</body></html>");
+    answer(404, "<html><body>Our 404 page, with a nav and a footer</body></html>");
     const r = await fetchAuditablePage("https://example.com/gone");
     expect(r.ok).toBe(false);
     expect(r).not.toHaveProperty("html");
   });
 
   it("refuses a 200 with an empty body, which is not a page either", async () => {
-    serve(200, "   \n  ");
+    answer(200, "   \n  ");
     const r = await fetchAuditablePage("https://example.com/blank");
     expect(r.ok).toBe(false);
     if (r.ok) return;
@@ -73,7 +74,7 @@ describe("an unreadable page stops the audit", () => {
   });
 
   it("reports a network failure as status 0 rather than inventing one", async () => {
-    globalThis.fetch = vi.fn(async () => { throw new Error("ENOTFOUND"); }) as unknown as typeof fetch;
+    serve({ "nope.invalid": () => { throw new Error("ENOTFOUND"); } });
     const r = await fetchAuditablePage("https://nope.invalid/");
     expect(r.ok).toBe(false);
     if (r.ok) return;
@@ -82,14 +83,10 @@ describe("an unreadable page stops the audit", () => {
   });
 
   it("distinguishes a timeout from a refusal", async () => {
-    globalThis.fetch = vi.fn(async () => {
-      const e = new Error("The operation was aborted");
-      e.name = "AbortError";
-      throw e;
-    }) as unknown as typeof fetch;
-    const r = await fetchAuditablePage("https://slow.example.com/", 5_000);
+    serve({ "slow.example.com/robots.txt": { status: 404 }, "slow.example.com": { hang: true } });
+    const r = await fetchAuditablePage("https://slow.example.com/", 50);
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.reason).toMatch(/did not respond within 5s/i);
+    expect(r.reason).toMatch(/did not respond within/i);
   });
 });

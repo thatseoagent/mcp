@@ -30,6 +30,13 @@
  * Per origin, not global: auditing two sites at once is not one site being
  * hammered, and a limit that made those callers wait on each other would be
  * rationing the Operator's own work rather than protecting anybody.
+ *
+ * Sites only. A fixed third-party API — CrUX, Wikimedia, the Wayback CDX
+ * server — is not paced here: its provider publishes a per-minute ceiling, and
+ * `third-party-api.ts` waits on that number instead. This module's numbers are
+ * ours, chosen for a site that published none, and they were wrong for an API
+ * in both directions — a gap that queued CrUX reads for no provider's sake, and
+ * a total above CrUX's own quota.
  */
 /** Minimum spacing between two request *starts* to the same origin. */
 export const MIN_REQUEST_GAP_MS = 100;

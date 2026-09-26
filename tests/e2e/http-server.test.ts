@@ -233,20 +233,27 @@ describe("the built HTTP server", () => {
 
     expect(names.sort()).toEqual([
       "ai_visibility_score",
+      "brand_pageviews",
       "crawl_site",
+      "crux_history",
+      "domain_authority",
       "entity_mentions",
       "ga4_ai_traffic",
+      "ga4_annotations",
       "ga4_check_compatibility",
       "ga4_custom_definitions",
+      "ga4_funnel_report",
       "ga4_get_realtime",
       "ga4_key_events",
       "ga4_list_properties",
       "ga4_metadata",
       "ga4_pivot_report",
       "ga4_run_report",
+      "ga4_setup_audit",
       "get_page_audits",
       "gsc_branded_split",
       "gsc_bulk_url_inspection",
+      "gsc_content_decay",
       "gsc_country_opportunity",
       "gsc_crawl_freshness",
       "gsc_detect_anomalies",
@@ -258,16 +265,19 @@ describe("the built HTTP server", () => {
       "gsc_device_gap",
       "gsc_discover_performance",
       "gsc_get_sitemap",
+      "gsc_hourly_performance",
       "gsc_index_coverage_analysis",
       "gsc_inspect_url",
       "gsc_list_properties",
       "gsc_list_sitemaps",
       "gsc_page_query_map",
+      "gsc_page_value",
       "gsc_rich_results",
       "gsc_search_analytics",
       "gsc_search_appearance",
       "gsc_serp_features_gap",
       "gsc_sites_health_check",
+      "page_entities",
       "pagespeed_insights",
       "run_page_audit",
       "run_site_audit",
@@ -286,7 +296,17 @@ describe("the built HTTP server", () => {
       "seo_schema_detection",
       "seo_schema_generator",
       "seo_security_headers",
+      "site_ai_crawler_traffic",
+      "site_ai_landing_signals",
+      "site_hreflang_country_gap",
+      "site_lastmod_accuracy",
+      "site_orphan_pages",
+      "site_schema_detection_gap",
+      "site_title_query_fit",
+      "site_vitals_by_traffic",
       "sync_gsc_properties",
+      "wayback_history",
+      "web_risk_check",
     ]);
   });
 
@@ -355,7 +375,7 @@ describe("the built HTTP server", () => {
     expect(res.result.isError).toBeFalsy();
     const text = res.result.content.map((c: { text: string }) => c.text).join("\n");
     expect(text).toContain("=== PAGE CRAWL REPORT ===");
-    expect(text).toContain("=== NOT EVALUATED ===");
+    expect(text).toMatch(/=== NOT CHECKED \(\d+\) ===/);
   }, 60_000);
 
   it("validates the robots.txt of a real domain", async () => {

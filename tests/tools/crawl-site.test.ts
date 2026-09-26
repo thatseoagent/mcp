@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import crawlSiteTool, { clampPages, DEFAULT_PAGES, PAGE_CEILING } from "@/tools/crawl-site";
 import { CRAWLER_USER_AGENT } from "@/lib/bot-identity";
 import { expectPacedStarts } from "../helpers/pacing";
-import { serve } from "../helpers/serve";
+import { serve, type Route } from "../helpers/serve";
 
 const originalFetch = globalThis.fetch;
 
@@ -59,7 +59,8 @@ describe("crawl_site", () => {
 
     const text = textOf(await crawlSiteTool({ url: "https://example.com/", maxPages: 1 }));
 
-    expect(text).toContain("=== NOT EVALUATED ===");
+    expect(text).toContain("=== NOT CHECKED (1) ===");
+    expect(text).toContain("Broken links, click depth, duplicate titles and duplicate meta descriptions — ");
     expect(text).toContain("Their absence here is not a pass");
     expect(text).not.toContain("=== DUPLICATE TITLES");
   });
@@ -99,7 +100,8 @@ describe("crawl_site", () => {
 
     const text = textOf(await crawlSiteTool({ url: "https://example.com/", maxPages: 5 }));
 
-    expect(text).toContain("n/a — orphan pages");
+    expect(text).toContain("=== NOT CHECKED (1) ===");
+    expect(text).toContain("Orphan pages — a crawler finds pages by following links");
   });
 
   it("skips a path robots.txt disallows for the crawler", async () => {
@@ -164,19 +166,18 @@ describe("crawl_site", () => {
     // nothing about this Tool: deleting the `paceRequestTo` call from the
     // crawler would leave every one of them green. This is the test that fails
     // if the crawler stops asking permission before it fetches.
-    serve({
-      "example.com/robots.txt": { status: 404, body: "" },
-      "https://example.com/": page({ links: ["/a", "/b"] }),
-      "https://example.com/a": page({ title: "A" }),
-      "https://example.com/b": page({ title: "B" }),
-    });
-
     const startedAt: number[] = [];
-    const routed = globalThis.fetch;
-    globalThis.fetch = ((...args: Parameters<typeof fetch>) => {
+    /** The route, noting when each request to it started. */
+    const timed = (route: Route) => () => {
       startedAt.push(Date.now());
-      return routed(...args);
-    }) as typeof fetch;
+      return route;
+    };
+    serve({
+      "example.com/robots.txt": timed({ status: 404, body: "" }),
+      "https://example.com/": timed(page({ links: ["/a", "/b"] })),
+      "https://example.com/a": timed(page({ title: "A" })),
+      "https://example.com/b": timed(page({ title: "B" })),
+    });
 
     await crawlSiteTool({ url: "https://example.com/", maxPages: 3 });
 

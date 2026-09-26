@@ -31,7 +31,7 @@ describe("crawl pacing", () => {
     await paceRequestTo("https://example.com/c");
 
     // Three starts, so two gaps. Compared against the gap rather than an exact
-    // total because the timer only guarantees "at least".
+    // total because pacing only guarantees "at least".
     expect(Date.now() - started).toBeGreaterThanOrEqual(2 * MIN_REQUEST_GAP_MS);
   });
 
